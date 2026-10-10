@@ -3,6 +3,9 @@ from pathlib import Path
 
 import pytest
 
+from psycopg.types.json import Jsonb
+
+from worker import jobs
 from worker.jobs import Job, PermanentJobError
 from worker.llm import DEFAULT_FIXTURES_DIR, FakeLLM, LLMOutputError, LLMResult
 from worker.topic_map import (
@@ -170,11 +173,13 @@ def test_handler_repairs_once_then_fails(db, make_user, make_goal):
 
 def test_handler_repairs_after_llm_output_error(db, make_user, make_goal):
     gid = make_goal(db, make_user())
-    spy = SpyLLM([LLMOutputError("truncated"), fixture_resp()])
+    spy = SpyLLM([LLMOutputError("truncated", 111, 222, "claude-sonnet-5-5"), fixture_resp()])
     TopicMapHandler(spy).run(db, make_job(gid))
     assert len(spy.calls) == 2
     assert goal_row(db, gid)["map_status"] == "ready"
     assert len(rows(db, gid)) == 10
+    toks = db.execute("select tokens from usage_events where kind = 'topic_map' order by tokens").fetchall()
+    assert [r["tokens"] for r in toks] == [30, 333]
 
 
 def test_on_retry_sets_delayed(db, make_user, make_goal):
@@ -188,3 +193,37 @@ def test_on_permanent_failure_sets_failed(db, make_user, make_goal):
     TopicMapHandler(SpyLLM([])).on_permanent_failure(db, make_job(gid), "boom")
     g = goal_row(db, gid)
     assert g["map_status"] == "failed" and g["map_error"] == "boom"
+
+
+def usage_count(db, uid):
+    return db.execute("select count(*) as n from usage_events where user_id = %s", (uid,)).fetchone()["n"]
+
+
+def queue_job(db, gid):
+    db.execute("delete from jobs")
+    db.execute(
+        "insert into jobs (kind, payload) values ('topic_map', %s)", (Jsonb({"goal_id": str(gid)}),)
+    )
+
+
+def test_failed_job_still_records_usage_for_both_calls(db, make_user, make_goal):
+    uid = make_user()
+    gid = make_goal(db, uid)
+    queue_job(db, gid)
+    bad = resp_of([topic(i) for i in range(4)])
+    spy = SpyLLM([bad, bad])
+    assert jobs.run_once(db, {"topic_map": TopicMapHandler(spy)}) is True
+    assert db.execute("select status from jobs").fetchone()["status"] == "failed"
+    g = goal_row(db, gid)
+    assert g["map_status"] == "failed" and g["map_error"] == FAIL_MSG
+    assert usage_count(db, uid) == 2
+
+
+def test_transient_error_on_repair_call_still_records_first_call(db, make_user, make_goal):
+    uid = make_user()
+    gid = make_goal(db, uid)
+    queue_job(db, gid)
+    spy = SpyLLM([resp_of([topic(i) for i in range(4)]), RuntimeError("rate limited")])
+    jobs.run_once(db, {"topic_map": TopicMapHandler(spy)})
+    assert db.execute("select status from jobs").fetchone()["status"] == "queued"
+    assert usage_count(db, uid) == 1

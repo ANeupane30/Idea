@@ -215,3 +215,18 @@ def test_stale_job_over_max_attempts_fails_permanently(db):
     r = row(db, jid)
     assert r["status"] == "failed" and r["last_error"] == "worker crashed repeatedly"
     assert h.calls == [("permanent", jid, GENERIC)]
+
+
+def test_pending_writes_on_exception_run_on_retry(db):
+    jid = add_job(db, kind="pw")
+    ran = []
+
+    class H(Recorder):
+        def run(self, conn, job):
+            err = RuntimeError("boom")
+            err.pending_writes = [lambda c: ran.append(c.execute("select 1 as x").fetchone()["x"])]
+            raise err
+
+    assert jobs.run_once(db, {"pw": H()}) is True
+    assert ran == [1]
+    assert row(db, jid)["status"] == "queued"

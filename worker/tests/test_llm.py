@@ -109,6 +109,15 @@ def test_anthropic_missing_output_raises_llm_output_error():
         a.parse(model="claude-sonnet-5-5", system="s", user="u", schema=Resp)
 
 
+def test_llm_output_error_carries_usage():
+    a, _ = _llm_with(_resp(None, "max_tokens"))
+    with pytest.raises(LLMOutputError) as ei:
+        a.parse(model="claude-sonnet-5-5", system="s", user="u", schema=Resp)
+    assert (ei.value.input_tokens, ei.value.output_tokens) == (5, 7)
+    assert ei.value.model == "claude-sonnet-5-5"
+    assert LLMOutputError("x").input_tokens == 0
+
+
 def test_anthropic_success_passes_expected_args():
     parsed = Resp(needs_clarification=False, clarifying_question=None, subtopics=[])
     a, msgs = _llm_with(_resp(parsed))

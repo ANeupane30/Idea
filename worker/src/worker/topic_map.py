@@ -9,7 +9,7 @@ import psycopg
 from pydantic import BaseModel
 
 from worker.jobs import Job, PermanentJobError
-from worker.llm import LLM, LLMOutputError, record_usage
+from worker.llm import LLM, LLMOutputError, LLMResult, record_usage
 
 log = logging.getLogger(__name__)
 
@@ -152,20 +152,45 @@ class TopicMapHandler:
     def __init__(self, llm: LLM):
         self._llm = llm
 
-    def _call(self, system: str, user: str, allow_clarify: bool):
-        """One LLM call. Returns (result, errors); result is None if no structured output came back."""
+    def _call(self, system: str, user: str, allow_clarify: bool, billed: list[LLMResult]):
+        """One LLM call. Returns (result, errors); result is None if no structured output came back.
+
+        Every call that consumed tokens is appended to `billed`."""
         try:
             result = self._llm.parse(model=MODEL, system=system, user=user, schema=TopicMapResponse)
         except LLMOutputError as e:
+            if e.input_tokens or e.output_tokens:
+                billed.append(LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL))
             return None, [f"no valid structured output was returned ({e})"]
+        billed.append(result)
         return result, validate_topic_map(result.output, allow_clarify)
 
     def run(self, conn: psycopg.Connection, job: Job) -> None:
+        billed: list[LLMResult] = []
+        user_id: list[UUID] = []
+        try:
+            self._run(conn, job, billed, user_id)
+        except Exception as e:
+            # run_once rolls back this handler's transaction, which would erase the usage
+            # rows for calls already paid for. Hand them to jobs.fail to persist instead.
+            if billed and user_id:
+                writes = getattr(e, "pending_writes", None)
+                if writes is None:
+                    writes = []
+                    e.pending_writes = writes  # type: ignore[attr-defined]
+                uid = user_id[0]
+                writes.extend((lambda c, r=r: record_usage(c, uid, "topic_map", r)) for r in billed)
+            raise
+
+    def _run(
+        self, conn: psycopg.Connection, job: Job, billed: list[LLMResult], user_id: list[UUID]
+    ) -> None:
         goal_id = UUID(str(job.payload["goal_id"]))
         with conn.transaction():
             goal = conn.execute("select * from goals where id = %s for update", (goal_id,)).fetchone()
             if goal is None:
                 raise PermanentJobError(FAILURE_MESSAGE)
+            user_id.append(goal["user_id"])
 
             existing = conn.execute(
                 "select 1 from subtopics where goal_id = %s limit 1", (goal_id,)
@@ -183,16 +208,17 @@ class TopicMapHandler:
             allow_clarify = not answer
 
             system, user = build_prompt(goal["title"], goal["description"], level, answer, allow_clarify)
-            result, errors = self._call(system, user, allow_clarify)
-            if result is not None:
-                record_usage(conn, goal["user_id"], "topic_map", result)
+            result, errors = self._call(system, user, allow_clarify, billed)
             if errors:
                 log.info("topic map for goal %s invalid, repairing: %s", goal_id, errors)
-                result, errors = self._call(system, _repair_user(user, errors), allow_clarify)
-                if result is not None:
-                    record_usage(conn, goal["user_id"], "topic_map", result)
+                result, errors = self._call(system, _repair_user(user, errors), allow_clarify, billed)
                 if errors:
                     raise PermanentJobError(FAILURE_MESSAGE)
+
+            # Success: usage commits with the map. On failure it travels via pending_writes.
+            for r in billed:
+                record_usage(conn, goal["user_id"], "topic_map", r)
+            billed.clear()
 
             resp = result.output
             if resp.needs_clarification:

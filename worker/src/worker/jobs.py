@@ -5,6 +5,7 @@ that commits; inside an outer transaction (as in the tests) it is a savepoint.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
@@ -78,12 +79,31 @@ def _mark_failed(conn: psycopg.Connection, job: Job, error: str) -> None:
     )
 
 
+PendingWrite = Callable[[psycopg.Connection], None]
+
+
+def _apply_pending(conn: psycopg.Connection, writes: list[PendingWrite]) -> None:
+    """Run writes a failed handler asked to persist (e.g. usage rows); one bad write can't block the rest."""
+    for write in writes:
+        try:
+            with conn.transaction():
+                write(conn)
+        except Exception:
+            log.exception("pending write failed")
+
+
 def _fail_permanently(
-    conn: psycopg.Connection, job: Job, last_error: str, message: str, handler: Handler
+    conn: psycopg.Connection,
+    job: Job,
+    last_error: str,
+    message: str,
+    handler: Handler,
+    writes: list[PendingWrite] | None = None,
 ) -> None:
     # Status change commits on its own so a failing hook cannot undo it.
     with conn.transaction():
         _mark_failed(conn, job, last_error)
+        _apply_pending(conn, writes or [])
     try:
         with conn.transaction():
             handler.on_permanent_failure(conn, job, message)
@@ -92,12 +112,16 @@ def _fail_permanently(
 
 
 def fail(conn: psycopg.Connection, job: Job, error: Exception, handler: Handler) -> None:
+    # A handler may attach `pending_writes` to its exception: writes that must survive
+    # the rollback of its own transaction. They commit together with the status change.
+    writes = list(getattr(error, "pending_writes", []))
     if isinstance(error, PermanentJobError):
-        _fail_permanently(conn, job, repr(error), error.message, handler)
+        _fail_permanently(conn, job, repr(error), error.message, handler, writes)
     elif job.attempts >= MAX_ATTEMPTS:
-        _fail_permanently(conn, job, repr(error), GENERIC_MESSAGE, handler)
+        _fail_permanently(conn, job, repr(error), GENERIC_MESSAGE, handler, writes)
     else:
         with conn.transaction():
+            _apply_pending(conn, writes)
             conn.execute(
                 "update jobs set status = 'queued', last_error = %s, locked_at = null,"
                 " run_after = now() + make_interval(secs => 10 * power(2, %s))"

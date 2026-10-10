@@ -27,7 +27,15 @@ PRICES_PER_MTOK = {"claude-sonnet-5-5": (2.00, 10.00), "claude-haiku-4-5": (1.00
 
 
 class LLMOutputError(Exception):
-    """The model returned no usable structured output (e.g. truncated at max_tokens)."""
+    """The model returned no usable structured output (e.g. truncated at max_tokens).
+
+    Carries the call's token usage so it can still be billed."""
+
+    def __init__(self, message: str, input_tokens: int = 0, output_tokens: int = 0, model: str = ""):
+        super().__init__(message)
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.model = model
 
 
 @dataclass
@@ -66,7 +74,12 @@ class AnthropicLLM:
         if response.stop_reason == "refusal":
             raise PermanentJobError(REFUSAL_MESSAGE)
         if response.parsed_output is None:
-            raise LLMOutputError(f"no parsed output (stop_reason={response.stop_reason})")
+            raise LLMOutputError(
+                f"no parsed output (stop_reason={response.stop_reason})",
+                response.usage.input_tokens,
+                response.usage.output_tokens,
+                response.model,
+            )
         return LLMResult(
             response.parsed_output,
             response.usage.input_tokens,
