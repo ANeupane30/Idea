@@ -20,7 +20,13 @@ def main() -> None:
     log.info("worker started (provider=%s)", settings.llm_provider)
     with connect(settings) as conn:
         while True:
-            if not run_once(conn, HANDLERS):
+            try:
+                idle = not run_once(conn, HANDLERS)
+            except Exception:
+                log.exception("unexpected error in worker loop")
+                conn.rollback()
+                idle = True
+            if idle:
                 time.sleep(settings.poll_interval_s)
 
 

@@ -35,6 +35,8 @@ class PermanentJobError(Exception):
 
 
 class Handler(Protocol):
+    """Handlers must use `conn.transaction()` and never call `conn.commit()`."""
+
     def run(self, conn: psycopg.Connection, job: Job) -> None: ...
 
     def on_retry(self, conn: psycopg.Connection, job: Job) -> None: ...
@@ -76,21 +78,37 @@ def _mark_failed(conn: psycopg.Connection, job: Job, error: str) -> None:
     )
 
 
-def fail(conn: psycopg.Connection, job: Job, error: Exception, handler: Handler) -> None:
-    permanent = isinstance(error, PermanentJobError)
+def _fail_permanently(
+    conn: psycopg.Connection, job: Job, last_error: str, message: str, handler: Handler
+) -> None:
+    # Status change commits on its own so a failing hook cannot undo it.
     with conn.transaction():
-        if permanent or job.attempts >= MAX_ATTEMPTS:
-            message = error.message if isinstance(error, PermanentJobError) else GENERIC_MESSAGE
-            _mark_failed(conn, job, repr(error))
+        _mark_failed(conn, job, last_error)
+    try:
+        with conn.transaction():
             handler.on_permanent_failure(conn, job, message)
-        else:
+    except Exception:
+        log.exception("on_permanent_failure hook failed for job %s", job.id)
+
+
+def fail(conn: psycopg.Connection, job: Job, error: Exception, handler: Handler) -> None:
+    if isinstance(error, PermanentJobError):
+        _fail_permanently(conn, job, repr(error), error.message, handler)
+    elif job.attempts >= MAX_ATTEMPTS:
+        _fail_permanently(conn, job, repr(error), GENERIC_MESSAGE, handler)
+    else:
+        with conn.transaction():
             conn.execute(
                 "update jobs set status = 'queued', last_error = %s, locked_at = null,"
                 " run_after = now() + make_interval(secs => 10 * power(2, %s))"
                 " where id = %s",
                 (repr(error), job.attempts, job.id),
             )
-            handler.on_retry(conn, job)
+        try:
+            with conn.transaction():
+                handler.on_retry(conn, job)
+        except Exception:
+            log.exception("on_retry hook failed for job %s", job.id)
 
 
 def run_once(conn: psycopg.Connection, handlers: dict[str, Handler]) -> bool:
@@ -103,6 +121,11 @@ def run_once(conn: psycopg.Connection, handlers: dict[str, Handler]) -> bool:
         log.error("no handler for job kind %r (job %s)", job.kind, job.id)
         with conn.transaction():
             _mark_failed(conn, job, f"unknown job kind: {job.kind}")
+        return True
+    if job.attempts > MAX_ATTEMPTS:
+        # A stale 'running' job reclaimed past its attempt budget: the worker
+        # crashed on it repeatedly. Do not run it again.
+        _fail_permanently(conn, job, "worker crashed repeatedly", GENERIC_MESSAGE, handler)
         return True
     try:
         # Own transaction so a failing handler's partial writes are rolled back.

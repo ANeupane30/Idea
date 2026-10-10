@@ -140,3 +140,78 @@ def test_fixtures_make_user_and_goal_enqueue_topic_map(db, make_user, make_goal)
     assert plan == "pro"
     job = jobs.claim(db)
     assert job.kind == "topic_map" and job.payload == {"goal_id": str(gid)}
+
+
+def test_handler_writes_roll_back_on_error(db, make_user, make_goal):
+    gid = make_goal(db, make_user(db), title="Before")
+    db.execute("delete from jobs")
+    jid = add_job(db, kind="w")
+
+    class Writer(Recorder):
+        def run(self, conn, job):
+            conn.execute("update goals set title = 'After' where id = %s", (gid,))
+            raise RuntimeError("boom")
+
+    assert jobs.run_once(db, {"w": Writer()}) is True
+    assert db.execute("select title from goals where id = %s", (gid,)).fetchone()["title"] == "Before"
+    r = row(db, jid)
+    assert r["status"] == "queued" and r["attempts"] == 1 and r["last_error"]
+
+
+def test_claim_commits_before_handler_runs():
+    from worker.config import Settings
+    from worker.db import connect
+
+    a, b = connect(Settings()), connect(Settings())
+    jid = None
+    try:
+        jid = a.execute(
+            "insert into jobs (kind, created_at) values ('commit_check', '2000-01-01') returning id"
+        ).fetchone()["id"]
+        a.commit()
+        seen = {}
+
+        class Checker(Recorder):
+            def run(self, conn, job):
+                seen["status"] = b.execute("select status from jobs where id = %s", (job.id,)).fetchone()["status"]
+                b.rollback()
+
+        assert jobs.run_once(a, {"commit_check": Checker()}) is True
+        assert seen["status"] == "running"
+    finally:
+        a.rollback()
+        if jid:
+            a.execute("delete from jobs where id = %s", (jid,))
+            a.commit()
+        a.close()
+        b.close()
+
+
+@pytest.mark.parametrize("hook", ["on_retry", "on_permanent_failure"])
+def test_failing_hook_does_not_lose_status_or_raise(db, hook):
+    kind = "h"
+    if hook == "on_retry":
+        jid, err = add_job(db, kind=kind), RuntimeError("boom")
+    else:
+        jid, err = add_job(db, kind=kind), PermanentJobError("x")
+
+    class BadHook(Recorder):
+        def run(self, conn, job):
+            raise err
+
+    def bad(*a, **k):
+        raise ValueError("hook broke")
+
+    h = BadHook()
+    setattr(h, hook, bad)
+    assert jobs.run_once(db, {kind: h}) is True
+    assert row(db, jid)["status"] == ("queued" if hook == "on_retry" else "failed")
+
+
+def test_stale_job_over_max_attempts_fails_permanently(db):
+    jid = add_job(db, kind="s", status="running", attempts=jobs.MAX_ATTEMPTS, locked_at="STALE")
+    h = Recorder()
+    assert jobs.run_once(db, {"s": h}) is True
+    r = row(db, jid)
+    assert r["status"] == "failed" and r["last_error"] == "worker crashed repeatedly"
+    assert h.calls == [("permanent", jid, GENERIC)]
