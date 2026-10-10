@@ -2,6 +2,8 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 
+import anthropic
+import httpx2 as httpx  # the HTTP library the installed anthropic SDK uses
 import pytest
 from pydantic import BaseModel
 
@@ -157,3 +159,47 @@ def test_cost_cents_unknown_model_uses_max_rates_and_warns(caplog):
     with caplog.at_level("WARNING", logger="worker.llm"):
         assert cost_cents(r) == Decimal("300.0000")
     assert "claude-future-9" in caplog.text
+
+
+def test_anthropic_client_timeout_and_no_sdk_retries():
+    # The job queue owns retries (1 attempt + 3 retries with backoff), so the SDK must not retry.
+    client = AnthropicLLM("test-key")._client
+    assert client.timeout == 120.0
+    assert client.max_retries == 0
+
+
+class _RaisingBetaMessages:
+    def __init__(self, exc):
+        self.exc = exc
+
+    def parse(self, **kwargs):
+        raise self.exc
+
+
+@pytest.mark.parametrize(
+    "exc_type,status",
+    [
+        (anthropic.BadRequestError, 400),
+        (anthropic.AuthenticationError, 401),
+        (anthropic.PermissionDeniedError, 403),
+        (anthropic.NotFoundError, 404),
+    ],
+)
+def test_anthropic_client_errors_are_permanent(exc_type, status, caplog):
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    exc = exc_type("detail-xyz", response=httpx.Response(status, request=req), body=None)
+    a = AnthropicLLM("test-key")
+    a._client = SimpleNamespace(beta=SimpleNamespace(messages=_RaisingBetaMessages(exc)))
+    with caplog.at_level("ERROR", logger="worker.llm"), pytest.raises(PermanentJobError) as ei:
+        a.parse(model="claude-sonnet-5-5", system="s", user="u", schema=Resp)
+    assert ei.value.message == "We couldn't build a topic map for this goal. Try rewording it."
+    assert "detail-xyz" in caplog.text
+
+
+def test_anthropic_rate_limit_is_not_permanent():
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    exc = anthropic.RateLimitError("slow down", response=httpx.Response(429, request=req), body=None)
+    a = AnthropicLLM("test-key")
+    a._client = SimpleNamespace(beta=SimpleNamespace(messages=_RaisingBetaMessages(exc)))
+    with pytest.raises(anthropic.RateLimitError):
+        a.parse(model="claude-sonnet-5-5", system="s", user="u", schema=Resp)

@@ -52,25 +52,41 @@ class LLM(Protocol):
     ) -> LLMResult[T]: ...
 
 
+_PERMANENT_API_ERRORS = (
+    anthropic.BadRequestError,
+    anthropic.AuthenticationError,
+    anthropic.PermissionDeniedError,
+    anthropic.NotFoundError,
+)
+
+
 class AnthropicLLM:
     def __init__(self, api_key: str):
-        self._client = anthropic.Anthropic(api_key=api_key, max_retries=3)
+        # No SDK retries: the job queue owns them (1 attempt + 3 retries with backoff,
+        # with "Processing is delayed" shown meanwhile), which meets the "3 retries
+        # with backoff on rate limits and timeouts" constraint with one retry layer.
+        self._client = anthropic.Anthropic(api_key=api_key, timeout=120.0, max_retries=0)
 
     def parse(
         self, *, model: str, system: str, user: str, schema: type[T], max_tokens: int = 16000
     ) -> LLMResult[T]:
         # Beta endpoint: the only one that accepts server-side refusal fallbacks.
         # Thinking is left at the model default (adaptive); never pass it.
-        response = self._client.beta.messages.parse(
-            model=model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            output_format=schema,
-            output_config={"effort": "medium"},
-            betas=[FALLBACK_BETA],
-            fallbacks="default",
-        )
+        try:
+            response = self._client.beta.messages.parse(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                output_format=schema,
+                output_config={"effort": "medium"},
+                betas=[FALLBACK_BETA],
+                fallbacks="default",
+            )
+        except _PERMANENT_API_ERRORS as e:
+            # Retrying the same request cannot fix these; keep the detail in the log only.
+            log.exception("Anthropic request rejected (%s)", type(e).__name__)
+            raise PermanentJobError(REFUSAL_MESSAGE) from e
         if response.stop_reason == "refusal":
             raise PermanentJobError(REFUSAL_MESSAGE)
         if response.parsed_output is None:
