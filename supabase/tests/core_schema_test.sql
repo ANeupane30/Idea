@@ -29,8 +29,12 @@ select is((select display_name from public.users where id = '00000000-0000-0000-
 -- Seed A's data (still as A).
 insert into public.goals (id, user_id, title)
   values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'A goal');
+-- Subtopic seeded as postgres: users may only edit subtopics of a ready map.
+reset role;
 insert into public.subtopics (id, goal_id, title, position)
   values ('20000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'A subtopic', 0);
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000a"}';
 insert into public.learning_prefs (user_id, preferred_format, level)
   values ('00000000-0000-0000-0000-00000000000a', 'visual', 'beginner');
 
@@ -89,6 +93,11 @@ insert into public.goals (id, user_id, title)
   values ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', '  Learn 日本語 🎌  ');
 select is((select title from public.goals where id = '10000000-0000-0000-0000-00000000000b'),
   'Learn 日本語 🎌', 'title_constraints: goal title trimmed and unicode preserved');
+-- Users may only edit subtopics once the map is ready.
+reset role;
+update public.goals set map_status = 'ready' where id = '10000000-0000-0000-0000-00000000000b';
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b"}';
 select throws_ok($$insert into public.subtopics (goal_id, title, position) values ('10000000-0000-0000-0000-00000000000b', '   ', 0)$$,
   '23514', null, 'title_constraints: whitespace-only subtopic title rejected');
 select throws_ok($$insert into public.subtopics (goal_id, title, position) values ('10000000-0000-0000-0000-00000000000b', repeat('x', 121), 0)$$,
