@@ -12,6 +12,10 @@ declare
   parent_row record;
 begin
   if current_user = 'authenticated' then
+    -- A subtopic never moves between goals.
+    if tg_op = 'UPDATE' and new.goal_id <> old.goal_id then
+      raise exception 'map_not_editable';
+    end if;
     select g.map_status, g.status into goal_row
     from public.goals g where g.id = new.goal_id;
     -- Goal not visible: leave it to RLS to reject the write.
@@ -36,11 +40,18 @@ begin
     end if;
   end if;
 
-  if tg_op = 'UPDATE' and current_user = 'authenticated' then
-    if btrim(new.title) is distinct from old.title
-       or new.summary is distinct from old.summary
-       or new.parent_id is distinct from old.parent_id then
+  -- user_edited is monotonic for end users: anything they add is theirs, a
+  -- content change marks the row, and they can never clear the flag.
+  -- Position-only renumbering leaves it alone (move_subtopic marks the moved row).
+  if current_user = 'authenticated' then
+    if tg_op = 'INSERT' then
       new.user_edited := true;
+    else
+      new.user_edited := old.user_edited
+        or new.user_edited
+        or btrim(new.title) is distinct from old.title
+        or new.summary is distinct from old.summary
+        or new.parent_id is distinct from old.parent_id;
     end if;
   end if;
   return new;
@@ -50,6 +61,29 @@ $$;
 create trigger subtopics_guard
   before insert or update on public.subtopics
   for each row execute function public.subtopics_guard();
+
+-- End users may delete only from a ready map of an active goal. FK cascades
+-- (deleting a parent or a goal) run as the table owner, so they pass.
+create function public.subtopics_delete_guard() returns trigger
+language plpgsql
+as $$
+declare
+  goal_row record;
+begin
+  if current_user = 'authenticated' then
+    select g.map_status, g.status into goal_row
+    from public.goals g where g.id = old.goal_id;
+    if found and (goal_row.map_status <> 'ready' or goal_row.status <> 'active') then
+      raise exception 'map_not_editable';
+    end if;
+  end if;
+  return old;
+end;
+$$;
+
+create trigger subtopics_delete_guard
+  before delete on public.subtopics
+  for each row execute function public.subtopics_delete_guard();
 
 -- Move a node under p_parent_id (null = top level) at p_position (0-based,
 -- clamped), renumbering siblings in the old and new parent to 0..n-1.
