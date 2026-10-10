@@ -39,11 +39,16 @@ create index goals_user_id_idx on public.goals (user_id);
 create table public.subtopics (
   id uuid primary key default gen_random_uuid(),
   goal_id uuid not null references public.goals on delete cascade,
-  parent_id uuid references public.subtopics on delete cascade,
+  parent_id uuid,
   title text not null check (char_length(title) between 1 and 120),
   summary text,
   position int not null,
-  user_edited boolean not null default false
+  user_edited boolean not null default false,
+  unique (goal_id, id),
+  -- Composite FK keeps a parent in the same goal (FK checks ignore RLS, so a
+  -- plain parent_id FK would allow cross-user parents). MATCH SIMPLE lets
+  -- parent_id be null.
+  foreign key (goal_id, parent_id) references public.subtopics (goal_id, id) on delete cascade
 );
 create index subtopics_goal_id_idx on public.subtopics (goal_id);
 create index subtopics_parent_id_idx on public.subtopics (parent_id);
@@ -204,3 +209,9 @@ grant update (display_name) on public.users to authenticated;
 revoke insert, update on public.goals from authenticated;
 grant insert (id, user_id, title, description) on public.goals to authenticated;
 grant update (title, description, status) on public.goals to authenticated;
+
+-- TRUNCATE bypasses RLS; TRIGGER and REFERENCES are not needed either.
+revoke truncate, trigger, references on
+  public.users, public.learning_prefs, public.goals, public.subtopics,
+  public.jobs, public.usage_events
+from anon, authenticated;

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(26);
+select plan(32);
 
 -- Fixtures: three auth users (A, B free; P made pro below).
 insert into auth.users (id, email) values
@@ -29,8 +29,8 @@ select is((select display_name from public.users where id = '00000000-0000-0000-
 -- Seed A's data (still as A).
 insert into public.goals (id, user_id, title)
   values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'A goal');
-insert into public.subtopics (goal_id, title, position)
-  values ('10000000-0000-0000-0000-00000000000a', 'A subtopic', 0);
+insert into public.subtopics (id, goal_id, title, position)
+  values ('20000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'A subtopic', 0);
 insert into public.learning_prefs (user_id, preferred_format, level)
   values ('00000000-0000-0000-0000-00000000000a', 'visual', 'beginner');
 
@@ -93,6 +93,19 @@ select throws_ok($$insert into public.subtopics (goal_id, title, position) value
   '23514', null, 'title_constraints: whitespace-only subtopic title rejected');
 select throws_ok($$insert into public.subtopics (goal_id, title, position) values ('10000000-0000-0000-0000-00000000000b', repeat('x', 121), 0)$$,
   '23514', null, 'title_constraints: 121-char subtopic title rejected');
+
+-- subtopic_parent_same_goal (B's goal b exists; A's subtopic is in another goal)
+select throws_ok($$insert into public.subtopics (goal_id, parent_id, title, position) values ('10000000-0000-0000-0000-00000000000b', '20000000-0000-0000-0000-00000000000a', 'cross', 0)$$,
+  '23503', null, 'subtopic_parent_same_goal: cross-goal parent rejected');
+select lives_ok($$insert into public.subtopics (id, goal_id, title, position) values ('20000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'root', 0)$$,
+  'subtopic_parent_same_goal: null parent allowed');
+select lives_ok($$insert into public.subtopics (goal_id, parent_id, title, position) values ('10000000-0000-0000-0000-00000000000b', '20000000-0000-0000-0000-00000000000b', 'child', 0)$$,
+  'subtopic_parent_same_goal: same-goal parent allowed');
+
+-- truncate_not_allowed
+select throws_ok('truncate public.jobs', '42501', null, 'truncate_not_allowed: jobs');
+select throws_ok('truncate public.usage_events', '42501', null, 'truncate_not_allowed: usage_events');
+select throws_ok('truncate public.goals', '42501', null, 'truncate_not_allowed: goals');
 
 -- prefs_enums
 select throws_ok($$insert into public.learning_prefs (user_id, preferred_format, level) values ('00000000-0000-0000-0000-00000000000b', 'audio', 'beginner')$$,
