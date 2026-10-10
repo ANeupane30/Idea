@@ -44,6 +44,8 @@ npm run test:web     # web Vitest unit tests
 npm run test:e2e     # Playwright; starts the web server and a fake-LLM worker itself
 ```
 
+> **Warning: stop any worker you started yourself before running `npm run test:e2e`.** The e2e run starts its own fake-LLM worker against the same local database. A separately running worker with a real `ANTHROPIC_API_KEY` would also pick up the e2e jobs, call Claude, and spend real money (and make the tests flaky).
+
 ## Live Claude smoke test (not yet run)
 
 All automated tests use the fake LLM. The real Claude path has not been exercised because no API key was available. To check it manually:
