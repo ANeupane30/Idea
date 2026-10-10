@@ -36,6 +36,9 @@ export function dbErrorToMessage(err: { message: string }): string {
   if (m.includes("goal_limit_reached")) return "Free plan allows 2 active goals. Archive one to add another.";
   if (m.includes("map_not_editable")) return "The topic map can't be edited right now.";
   if (m.includes("max_depth_exceeded")) return "Topic maps can only be two levels deep.";
+  if (m.includes("not_clarifying") || m.includes("not_failed"))
+    return "This goal's topic map has already moved on. Refresh the page.";
+  if (m.includes("invalid_answer")) return "Please write an answer of up to 1000 characters.";
   return GENERIC_ERROR;
 }
 

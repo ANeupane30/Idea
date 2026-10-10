@@ -38,3 +38,19 @@ export async function setGoalStatus(goalId: string, status: "active" | "archived
   revalidatePath("/goals");
   return { ok: true };
 }
+
+export async function answerClarification(goalId: string, answer: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("answer_clarification", { p_goal_id: goalId, p_answer: answer });
+  if (error) return { ok: false, error: dbErrorToMessage(error) };
+  revalidatePath(`/goals/${goalId}`);
+  return { ok: true };
+}
+
+export async function retryTopicMap(goalId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("retry_topic_map", { p_goal_id: goalId });
+  if (error) return { ok: false, error: dbErrorToMessage(error) };
+  revalidatePath(`/goals/${goalId}`);
+  return { ok: true };
+}
