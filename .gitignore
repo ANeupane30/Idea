@@ -4,3 +4,4 @@ node_modules
 __pycache__
 .env*
 supabase/.temp
+!.env*.example
