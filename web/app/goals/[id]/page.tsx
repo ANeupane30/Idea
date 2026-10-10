@@ -2,36 +2,17 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import type { SubtopicRow } from "@/lib/topic-tree";
 import { MapStatus } from "./MapStatus";
+import { TopicMapEditor } from "./TopicMapEditor";
 
-type Subtopic = { id: string; parent_id: string | null; title: string; position: number };
-
-// Read-only for now; Task 9 swaps in the editor here.
-async function TopicMapSlot({ goalId }: { goalId: string }) {
+async function TopicMapSlot({ goalId, readOnly }: { goalId: string; readOnly: boolean }) {
   const supabase = await createClient();
   const { data } = await supabase
     .from("subtopics")
-    .select("id, parent_id, title, position")
-    .eq("goal_id", goalId)
-    .order("position");
-  const rows = (data ?? []) as Subtopic[];
-  const children = (pid: string | null) => rows.filter((r) => r.parent_id === pid);
-  return (
-    <ul className="mt-4 list-disc pl-6">
-      {children(null).map((t) => (
-        <li key={t.id}>
-          <span>{t.title}</span>
-          {children(t.id).length > 0 && (
-            <ul className="list-disc pl-6">
-              {children(t.id).map((c) => (
-                <li key={c.id}>{c.title}</li>
-              ))}
-            </ul>
-          )}
-        </li>
-      ))}
-    </ul>
-  );
+    .select("id, parent_id, title, summary, position, user_edited")
+    .eq("goal_id", goalId);
+  return <TopicMapEditor goalId={goalId} rows={(data ?? []) as SubtopicRow[]} readOnly={readOnly} />;
 }
 
 async function Goal({ params }: { params: Promise<{ id: string }> }) {
@@ -49,7 +30,7 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
     <main className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-semibold">{data.title}</h1>
       <MapStatus goal={data}>
-        <TopicMapSlot goalId={data.id} />
+        {data.map_status === "ready" && <TopicMapSlot goalId={data.id} readOnly={data.status !== "active"} />}
       </MapStatus>
     </main>
   );

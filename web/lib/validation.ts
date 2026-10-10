@@ -31,6 +31,14 @@ export const goalSchema = z.object({
     .optional(),
 });
 
+export const subtopicTitleSchema = goalSchema.shape.title;
+
+export const subtopicSummarySchema = z
+  .string()
+  .trim()
+  .max(300, "Keep the summary under 300 characters.")
+  .optional();
+
 export function dbErrorToMessage(err: { message: string }): string {
   const m = err.message ?? "";
   if (m.includes("goal_limit_reached")) return "Free plan allows 2 active goals. Archive one to add another.";
