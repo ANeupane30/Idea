@@ -90,9 +90,9 @@ def _llm_with(response):
     return a, msgs
 
 
-def _resp(parsed, stop="end_turn"):
+def _resp(parsed, stop="end_turn", model="claude-sonnet-5-5"):
     return SimpleNamespace(
-        parsed_output=parsed, stop_reason=stop, usage=SimpleNamespace(input_tokens=5, output_tokens=7)
+        parsed_output=parsed, stop_reason=stop, model=model, usage=SimpleNamespace(input_tokens=5, output_tokens=7)
     )
 
 
@@ -134,3 +134,17 @@ def test_make_llm_fake_and_anthropic():
 
 def test_default_fixtures_dir_exists():
     assert llm.DEFAULT_FIXTURES_DIR.is_dir()
+
+
+def test_result_model_is_served_model():
+    parsed = Resp(needs_clarification=False, clarifying_question=None, subtopics=[])
+    a, _ = _llm_with(_resp(parsed, model="claude-haiku-4-5"))
+    res = a.parse(model="claude-sonnet-5-5", system="s", user="u", schema=Resp)
+    assert res.model == "claude-haiku-4-5"
+
+
+def test_cost_cents_unknown_model_uses_max_rates_and_warns(caplog):
+    r = LLMResult(output=None, input_tokens=1_000_000, output_tokens=100_000, model="claude-future-9")
+    with caplog.at_level("WARNING", logger="worker.llm"):
+        assert cost_cents(r) == Decimal("300.0000")
+    assert "claude-future-9" in caplog.text

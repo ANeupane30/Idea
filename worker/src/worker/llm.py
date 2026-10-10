@@ -1,6 +1,7 @@
 """LLM client: Anthropic (structured output) and a fixture-backed fake, plus usage recording."""
 
 from dataclasses import dataclass
+import logging
 from decimal import Decimal
 from pathlib import Path
 from typing import Generic, Protocol, TypeVar
@@ -11,6 +12,8 @@ import psycopg
 
 from worker.config import Settings
 from worker.jobs import PermanentJobError
+
+log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -68,7 +71,7 @@ class AnthropicLLM:
             response.parsed_output,
             response.usage.input_tokens,
             response.usage.output_tokens,
-            model,
+            response.model,  # the model that actually served the call (fallbacks may differ)
         )
 
 
@@ -94,7 +97,15 @@ def make_llm(settings: Settings) -> LLM:
 
 
 def cost_cents(result: LLMResult) -> Decimal:
-    price_in, price_out = PRICES_PER_MTOK[result.model]
+    prices = PRICES_PER_MTOK.get(result.model)
+    if prices is None:
+        # Never lose a usage row: price an unknown model at the highest known rates.
+        log.warning("unknown model %r for pricing; using max known rates", result.model)
+        prices = (
+            max(p[0] for p in PRICES_PER_MTOK.values()),
+            max(p[1] for p in PRICES_PER_MTOK.values()),
+        )
+    price_in, price_out = prices
     usd = (
         Decimal(str(price_in)) * result.input_tokens + Decimal(str(price_out)) * result.output_tokens
     ) / Decimal(1_000_000)
