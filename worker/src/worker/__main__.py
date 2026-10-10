@@ -5,11 +5,10 @@ import time
 from worker.config import Settings
 from worker.db import connect
 from worker.jobs import Handler, run_once
+from worker.llm import make_llm
+from worker.topic_map import TopicMapHandler
 
 log = logging.getLogger("worker")
-
-# Later tasks register handlers here, keyed by job kind.
-HANDLERS: dict[str, Handler] = {}
 
 
 def main() -> None:
@@ -18,10 +17,11 @@ def main() -> None:
     )
     settings = Settings()
     log.info("worker started (provider=%s)", settings.llm_provider)
+    handlers: dict[str, Handler] = {"topic_map": TopicMapHandler(make_llm(settings))}
     with connect(settings) as conn:
         while True:
             try:
-                idle = not run_once(conn, HANDLERS)
+                idle = not run_once(conn, handlers)
             except Exception:
                 log.exception("unexpected error in worker loop")
                 conn.rollback()
