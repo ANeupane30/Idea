@@ -1,7 +1,7 @@
 # Adaptive Learning Platform — Brainstorm Decision Log
 
 **Started:** 2026-10-07
-**Status:** Brainstorming in progress. Architecture approach agreed; detailed design sections being reviewed one at a time. This is a decision log, not the final spec.
+**Status:** Phase 1 implemented on branch `phase-1` (2026-10-10). Awaiting review and merge. This is a decision log, not the final spec.
 
 ## The idea
 
@@ -61,7 +61,7 @@ A user sets a goal, adds a few links or PDFs, sees what each source covers and w
 | 5. Quizzes and mastery | Approved for first release |
 | 6. Error handling, cost controls, testing | Approved for first release |
 
-**Spec written:** [docs/superpowers/specs/2026-10-07-adaptive-learning-platform-design.md](../superpowers/specs/2026-10-07-adaptive-learning-platform-design.md). Approved by user on 2026-10-07. Next: implementation plan.
+**Spec written:** [docs/superpowers/specs/2026-10-07-adaptive-learning-platform-design.md](../superpowers/specs/2026-10-07-adaptive-learning-platform-design.md). Approved by user on 2026-10-07.
 
 ### Section 1 draft: Data model
 
@@ -146,12 +146,34 @@ Key points:
 - [x] Architecture approach agreed (Next.js + Python worker + Supabase)
 - [x] All 6 design sections presented and approved
 - [x] Full spec written and approved by user
-- [ ] Implementation plan (next)
-- [ ] Execution of plan
+- [x] Implementation plan (Phase 1: foundation, goals, topic map)
+- [x] Phase 1 implemented on branch `phase-1` (2026-10-10)
+- [ ] Phase 2 (ingestion pipeline) plan
+
+## Spec amendments (Phase 1)
+
+- `goals` gains `map_status (pending|clarifying|ready|failed)`, `map_delayed bool`, `clarifying_question text`, `clarification_answer text`, `map_error text`.
+- `users.id` is `auth.users.id`; a trigger creates the `public.users` row at sign-up.
+- `subtopics.summary` is nullable: user-added subtopics may have no summary (Phase 2 matching falls back to the title).
+- `usage_events.kind` gains `topic_map`. `jobs` gains `locked_at`, `created_at`.
+
+## Implementation decisions (Phase 1)
+
+- npm instead of pnpm, with the Supabase CLI as a root dev dependency (no global installs).
+- Next.js 16 `proxy.ts` is used instead of `middleware.ts`.
+- Pro tier is 25 active goals and up to 6 children per subtopic (placeholder values, tune later).
+- The worker retry bound includes crash reclaims: a job that crashed the worker 4 times fails.
+- Usage is recorded even when a job fails (`pending_writes`), and truncated calls are billed.
+- An unknown serving model (server-side refusal fallback) is priced at the max known rate.
+- Onboarding preselects Text + Beginner.
+- The map editor uses buttons (rename, move, indent, outdent, delete), not drag-and-drop.
+- The live Claude smoke test is pending an API key (manual steps in the README).
 
 ## Pending decisions when resuming (planned 2026-10-08)
 
-1. **Implementation plan.** Resolved: user installed `writing-plans` and `executing-plans` (from `obra/superpowers`). Proposed: one plan per phase, starting with setup + auth, goals, topic map; awaiting user confirmation. `subagent-driven-development` also installed (scripts reviewed: benign). Then installed and reviewed (user gave blanket permission): `test-driven-development`, `using-git-worktrees`, `verification-before-completion`, `systematic-debugging`, `requesting-code-review`, `finishing-a-development-branch`. All skills needed for planning and execution are now present (project-scoped, Claude Code only).
-2. **Git.** `Desktop\ideas` is **not a git repository**, so nothing is committed yet. Decide whether to `git init` and commit the spec and this log.
+1. **Implementation plan.** Resolved: Phase 1 plan written and executed (one plan per phase). The needed skills (`writing-plans`, `executing-plans`, `subagent-driven-development`, `test-driven-development`, `using-git-worktrees`, `verification-before-completion`, `systematic-debugging`, `requesting-code-review`, `finishing-a-development-branch`) were installed and reviewed.
+2. **Git.** Resolved: the project is a git repository; work was done on branch `phase-1`.
 
-Implementation must not start until the plan is written, reviewed, and an execution method is chosen.
+## Next
+
+Review and merge `phase-1`, then write the Phase 2 (ingestion pipeline) plan.
