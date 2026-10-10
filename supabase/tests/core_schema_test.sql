@@ -29,7 +29,7 @@ select is((select display_name from public.users where id = '00000000-0000-0000-
 -- Seed A's data (still as A).
 insert into public.goals (id, user_id, title)
   values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'A goal');
--- Subtopic seeded as postgres: users may only edit subtopics of a ready map.
+-- Subtopic seeded as postgres: users cannot write subtopics.
 reset role;
 insert into public.subtopics (id, goal_id, title, position)
   values ('20000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000a', 'A subtopic', 0);
@@ -93,11 +93,9 @@ insert into public.goals (id, user_id, title)
   values ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', '  Learn 日本語 🎌  ');
 select is((select title from public.goals where id = '10000000-0000-0000-0000-00000000000b'),
   'Learn 日本語 🎌', 'title_constraints: goal title trimmed and unicode preserved');
--- Users may only edit subtopics once the map is ready.
+-- Subtopics are written by the worker (postgres), never by users.
 reset role;
 update public.goals set map_status = 'ready' where id = '10000000-0000-0000-0000-00000000000b';
-set local role authenticated;
-set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b"}';
 select throws_ok($$insert into public.subtopics (goal_id, title, position) values ('10000000-0000-0000-0000-00000000000b', '   ', 0)$$,
   '23514', null, 'title_constraints: whitespace-only subtopic title rejected');
 select throws_ok($$insert into public.subtopics (goal_id, title, position) values ('10000000-0000-0000-0000-00000000000b', repeat('x', 121), 0)$$,
@@ -105,13 +103,15 @@ select throws_ok($$insert into public.subtopics (goal_id, title, position) value
 
 -- subtopic_parent_same_goal (B's goal b exists; A's subtopic is in another goal)
 select throws_ok($$insert into public.subtopics (goal_id, parent_id, title, position) values ('10000000-0000-0000-0000-00000000000b', '20000000-0000-0000-0000-00000000000a', 'cross', 0)$$,
-  '23503', null, 'subtopic_parent_same_goal: cross-goal parent rejected');
+  'P0001', 'max_depth_exceeded', 'subtopic_parent_same_goal: cross-goal parent rejected');
 select lives_ok($$insert into public.subtopics (id, goal_id, title, position) values ('20000000-0000-0000-0000-00000000000b', '10000000-0000-0000-0000-00000000000b', 'root', 0)$$,
   'subtopic_parent_same_goal: null parent allowed');
 select lives_ok($$insert into public.subtopics (goal_id, parent_id, title, position) values ('10000000-0000-0000-0000-00000000000b', '20000000-0000-0000-0000-00000000000b', 'child', 0)$$,
   'subtopic_parent_same_goal: same-goal parent allowed');
 
 -- truncate_not_allowed
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-00000000000b"}';
 select throws_ok('truncate public.jobs', '42501', null, 'truncate_not_allowed: jobs');
 select throws_ok('truncate public.usage_events', '42501', null, 'truncate_not_allowed: usage_events');
 select throws_ok('truncate public.goals', '42501', null, 'truncate_not_allowed: goals');
