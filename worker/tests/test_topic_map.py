@@ -176,13 +176,15 @@ def test_handler_repairs_once_then_fails(db, make_user, make_goal):
 
 
 def test_handler_repairs_after_llm_output_error(db, make_user, make_goal):
-    gid = make_goal(db, make_user())
+    uid = make_user()
+    gid = make_goal(db, uid)
     spy = SpyLLM([LLMOutputError("truncated", 111, 222, "claude-sonnet-5-5"), fixture_resp()])
     TopicMapHandler(spy).run(db, make_job(gid))
     assert len(spy.calls) == 2
     assert goal_row(db, gid)["map_status"] == "ready"
     assert len(rows(db, gid)) == 10
-    toks = db.execute("select tokens from usage_events where kind = 'topic_map' order by tokens").fetchall()
+    toks = db.execute("select tokens from usage_events where user_id = %s and kind = 'topic_map' order by tokens", (uid,)
+    ).fetchall()
     assert [r["tokens"] for r in toks] == [30, 333]
 
 
