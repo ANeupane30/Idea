@@ -22,10 +22,12 @@ A platform where users learn in the way that suits them:
 | 4 | How preferences are known | **Both**: users state a preference at onboarding (first release); the data model supports inferring format from quiz performance later. |
 | 5 | First-release sources | **Websites, YouTube (via transcripts), PDF uploads.** All are normalized to text. GitHub and course platforms come later (course platforms are paywalled and their ToS forbid scraping, so support will be limited, e.g. user notes or syllabus metadata). |
 | 6 | Visuals | **Structured diagrams** (AI writes Mermaid diagram code, rendered in the app). No AI-generated images in the first release. Later: also pull real figures/frames from sources. |
-| 7 | Relevance matching | **Goal → editable topic map.** A goal is broken into subtopics; each source is mapped to the subtopics it covers, with a relevance score and reason; gaps are shown. |
+| 7 | Relevance matching | **Goal → AI-designed topic map** (revised 2026-10-10, see decision 11; was "editable topic map"). A goal is broken into subtopics; each source is mapped to the subtopics it covers, with a relevance score and reason; gaps are shown. |
 | 8 | Quizzes | **Multiple choice with difficulty adaptation and decaying per-subtopic mastery** (spaced review) in the first release. AI-graded short answers added later. |
 | 9 | Build constraints | Small team / solo, web app first, stack chosen by Claude. |
 | 10 | Architecture | **Next.js web app + Python worker + Supabase** (Postgres, auth, storage, pgvector). |
+| 11 | Who shapes the topic map (2026-10-10) | **The AI designs it; the user does not edit it.** Learners don't know a subject well enough to name, order, or nest its subtopics. The map is built from the goal and the user's level (beginner/intermediate/advanced) and shown as a visual mind map (goal → numbered main topics in learning order → child topics). The Phase 1 rename/move/nest/add/delete editor is removed. |
+| 12 | Sign-up (2026-10-10, **pending details**) | **No forced sign-up for the demo.** A visitor can set a goal (and later add sources) as a guest; sign-up is asked only when they want more. Proposed: Supabase anonymous sessions upgraded to a real account on sign-up. Open: sign-up triggers, guest limits (proposed 1 goal / 3 sources / ~5 lessons + captcha + IP rate limit), inline onboarding, guest cleanup (proposed 30 days). |
 
 ## Assumptions (not explicitly confirmed; correct if wrong)
 
