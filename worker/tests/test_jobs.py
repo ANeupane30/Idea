@@ -149,8 +149,10 @@ def test_handler_writes_roll_back_on_error(db, make_user, make_goal):
 
     class Writer(Recorder):
         def run(self, conn, job):
-            conn.execute("update goals set title = 'After' where id = %s", (gid,))
-            raise RuntimeError("boom")
+            # Handlers own their transactions: this block rolls back, the requeue persists.
+            with conn.transaction():
+                conn.execute("update goals set title = 'After' where id = %s", (gid,))
+                raise RuntimeError("boom")
 
     assert jobs.run_once(db, {"w": Writer()}) is True
     assert db.execute("select title from goals where id = %s", (gid,)).fetchone()["title"] == "Before"

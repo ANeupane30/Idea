@@ -149,103 +149,111 @@ def _repair_user(user: str, errors: list[str]) -> str:
 
 
 class TopicMapHandler:
+    """Builds a goal's topic map.
+
+    No transaction stays open across an LLM call: a held goal lock would block the
+    user (e.g. archiving the goal) past their statement timeout. The handler reads,
+    calls the model with no transaction open, commits each call's usage row right
+    away, then locks the goal and writes only if it is still pending with no map.
+    """
+
     def __init__(self, llm: LLM):
         self._llm = llm
 
-    def _call(self, system: str, user: str, allow_clarify: bool, billed: list[LLMResult]):
+    def _call(
+        self, conn: psycopg.Connection, user_id: UUID, system: str, user: str, allow_clarify: bool
+    ):
         """One LLM call. Returns (result, errors); result is None if no structured output came back.
 
-        Every call that consumed tokens is appended to `billed`."""
+        Every call that consumed tokens is billed in its own committed transaction."""
         try:
             result = self._llm.parse(model=MODEL, system=system, user=user, schema=TopicMapResponse)
         except LLMOutputError as e:
             if e.input_tokens or e.output_tokens:
-                billed.append(LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL))
+                billed = LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL)
+                record_usage(conn, user_id, "topic_map", billed)
             return None, [f"no valid structured output was returned ({e})"]
-        billed.append(result)
+        record_usage(conn, user_id, "topic_map", result)
         return result, validate_topic_map(result.output, allow_clarify)
 
-    def run(self, conn: psycopg.Connection, job: Job) -> None:
-        billed: list[LLMResult] = []
-        user_id: list[UUID] = []
-        try:
-            self._run(conn, job, billed, user_id)
-        except Exception as e:
-            # run_once rolls back this handler's transaction, which would erase the usage
-            # rows for calls already paid for. Hand them to jobs.fail to persist instead.
-            if billed and user_id:
-                writes = getattr(e, "pending_writes", None)
-                if writes is None:
-                    writes = []
-                    e.pending_writes = writes  # type: ignore[attr-defined]
-                uid = user_id[0]
-                writes.extend((lambda c, r=r: record_usage(c, uid, "topic_map", r)) for r in billed)
-            raise
+    @staticmethod
+    def _has_map(conn: psycopg.Connection, goal_id: UUID) -> bool:
+        return conn.execute(
+            "select 1 from subtopics where goal_id = %s limit 1", (goal_id,)
+        ).fetchone() is not None
 
-    def _run(
-        self, conn: psycopg.Connection, job: Job, billed: list[LLMResult], user_id: list[UUID]
-    ) -> None:
+    def run(self, conn: psycopg.Connection, job: Job) -> None:
         goal_id = UUID(str(job.payload["goal_id"]))
+
+        # 1. Short read, no lock. Only a pending goal with no map needs the model.
         with conn.transaction():
-            goal = conn.execute("select * from goals where id = %s for update", (goal_id,)).fetchone()
+            goal = conn.execute("select * from goals where id = %s", (goal_id,)).fetchone()
             if goal is None:
                 raise PermanentJobError(FAILURE_MESSAGE)
-            user_id.append(goal["user_id"])
-
-            existing = conn.execute(
-                "select 1 from subtopics where goal_id = %s limit 1", (goal_id,)
-            ).fetchone()
-            if existing:
+            if self._has_map(conn, goal_id):
                 if goal["map_status"] == "pending":
-                    conn.execute("update goals set map_status = 'ready' where id = %s", (goal_id,))
+                    conn.execute(
+                        "update goals set map_status = 'ready' where id = %s and map_status = 'pending'",
+                        (goal_id,),
+                    )
                 return
-
+            if goal["map_status"] != "pending":
+                return
             prefs = conn.execute(
                 "select level from learning_prefs where user_id = %s", (goal["user_id"],)
             ).fetchone()
-            level = prefs["level"] if prefs else "beginner"
-            answer = goal["clarification_answer"]
-            allow_clarify = not answer
 
-            system, user = build_prompt(goal["title"], goal["description"], level, answer, allow_clarify)
-            result, errors = self._call(system, user, allow_clarify, billed)
+        user_id = goal["user_id"]
+        level = prefs["level"] if prefs else "beginner"
+        answer = goal["clarification_answer"]
+        allow_clarify = not answer
+
+        # 2. LLM calls, outside any transaction.
+        system, user = build_prompt(goal["title"], goal["description"], level, answer, allow_clarify)
+        result, errors = self._call(conn, user_id, system, user, allow_clarify)
+        if errors:
+            log.info("topic map for goal %s invalid, repairing: %s", goal_id, errors)
+            result, errors = self._call(conn, user_id, system, _repair_user(user, errors), allow_clarify)
             if errors:
-                log.info("topic map for goal %s invalid, repairing: %s", goal_id, errors)
-                result, errors = self._call(system, _repair_user(user, errors), allow_clarify, billed)
-                if errors:
-                    raise PermanentJobError(FAILURE_MESSAGE)
+                raise PermanentJobError(FAILURE_MESSAGE)
 
-            # Success: usage commits with the map. On failure it travels via pending_writes.
-            for r in billed:
-                record_usage(conn, goal["user_id"], "topic_map", r)
-            billed.clear()
-
-            resp = result.output
-            if resp.needs_clarification:
-                conn.execute(
-                    "update goals set map_status = 'clarifying', clarifying_question = %s,"
-                    " map_delayed = false, map_error = null where id = %s",
-                    ((resp.clarifying_question or "").strip(), goal_id),
-                )
+        # 3. Short write under the goal lock, only if nothing changed meanwhile.
+        with conn.transaction():
+            locked = conn.execute(
+                "select map_status from goals where id = %s for update", (goal_id,)
+            ).fetchone()
+            if locked is None or locked["map_status"] != "pending" or self._has_map(conn, goal_id):
+                log.info("goal %s changed during topic map generation; not writing", goal_id)
                 return
+            self._write(conn, goal_id, result.output)
 
-            for pos, sub in enumerate(resp.subtopics):
-                parent = conn.execute(
-                    "insert into subtopics (goal_id, parent_id, title, summary, position)"
-                    " values (%s, null, %s, %s, %s) returning id",
-                    (goal_id, sub.title.strip(), sub.summary.strip(), pos),
-                ).fetchone()["id"]
-                for cpos, child in enumerate(sub.children):
-                    conn.execute(
-                        "insert into subtopics (goal_id, parent_id, title, summary, position)"
-                        " values (%s, %s, %s, %s, %s)",
-                        (goal_id, parent, child.title.strip(), child.summary.strip(), cpos),
-                    )
+    @staticmethod
+    def _write(conn: psycopg.Connection, goal_id: UUID, resp: TopicMapResponse) -> None:
+        if resp.needs_clarification:
             conn.execute(
-                "update goals set map_status = 'ready', map_delayed = false, map_error = null"
-                " where id = %s",
-                (goal_id,),
+                "update goals set map_status = 'clarifying', clarifying_question = %s,"
+                " map_delayed = false, map_error = null where id = %s",
+                ((resp.clarifying_question or "").strip(), goal_id),
             )
+            return
+
+        for pos, sub in enumerate(resp.subtopics):
+            parent = conn.execute(
+                "insert into subtopics (goal_id, parent_id, title, summary, position)"
+                " values (%s, null, %s, %s, %s) returning id",
+                (goal_id, sub.title.strip(), sub.summary.strip(), pos),
+            ).fetchone()["id"]
+            for cpos, child in enumerate(sub.children):
+                conn.execute(
+                    "insert into subtopics (goal_id, parent_id, title, summary, position)"
+                    " values (%s, %s, %s, %s, %s)",
+                    (goal_id, parent, child.title.strip(), child.summary.strip(), cpos),
+                )
+        conn.execute(
+            "update goals set map_status = 'ready', map_delayed = false, map_error = null"
+            " where id = %s",
+            (goal_id,),
+        )
 
     def on_retry(self, conn: psycopg.Connection, job: Job) -> None:
         with conn.transaction():

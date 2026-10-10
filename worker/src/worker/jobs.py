@@ -36,7 +36,13 @@ class PermanentJobError(Exception):
 
 
 class Handler(Protocol):
-    """Handlers must use `conn.transaction()` and never call `conn.commit()`."""
+    """A job handler.
+
+    `run` is called with no transaction open. Handlers own their transactions: they
+    group writes in short `with conn.transaction():` blocks (never `conn.commit()`)
+    and must not hold one open across slow work such as an LLM call. A block that
+    raises rolls back; blocks that already finished stay committed.
+    """
 
     def run(self, conn: psycopg.Connection, job: Job) -> None: ...
 
@@ -152,9 +158,7 @@ def run_once(conn: psycopg.Connection, handlers: dict[str, Handler]) -> bool:
         _fail_permanently(conn, job, "worker crashed repeatedly", GENERIC_MESSAGE, handler)
         return True
     try:
-        # Own transaction so a failing handler's partial writes are rolled back.
-        with conn.transaction():
-            handler.run(conn, job)
+        handler.run(conn, job)
     except Exception as e:
         log.warning("job %s (%s) failed on attempt %d: %r", job.id, job.kind, job.attempts, e)
         fail(conn, job, e, handler)

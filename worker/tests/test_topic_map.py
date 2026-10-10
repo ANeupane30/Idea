@@ -1,11 +1,15 @@
 import json
+import uuid
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from psycopg.types.json import Jsonb
 
 from worker import jobs
+from worker.config import Settings
+from worker.db import connect
 from worker.jobs import Job, PermanentJobError
 from worker.llm import DEFAULT_FIXTURES_DIR, FakeLLM, LLMOutputError, LLMResult
 from worker.topic_map import (
@@ -227,3 +231,94 @@ def test_transient_error_on_repair_call_still_records_first_call(db, make_user, 
     jobs.run_once(db, {"topic_map": TopicMapHandler(spy)})
     assert db.execute("select status from jobs").fetchone()["status"] == "queued"
     assert usage_count(db, uid) == 1
+
+
+def test_handler_noop_when_not_pending(db, make_user, make_goal):
+    gid = make_goal(db, make_user(), map_status="clarifying", clarifying_question="Which area?")
+    spy = SpyLLM([])
+    TopicMapHandler(spy).run(db, make_job(gid))
+    assert spy.calls == []
+    assert rows(db, gid) == []
+    assert goal_row(db, gid)["map_status"] == "clarifying"
+
+
+class _CallbackLLM(SpyLLM):
+    """SpyLLM that runs `during` (with a second connection) inside each parse call."""
+
+    def __init__(self, outputs, during):
+        super().__init__(outputs)
+        self.during = during
+
+    def parse(self, **kwargs):
+        self.during()
+        return super().parse(**kwargs)
+
+
+def _committed_goal(conn):
+    """Create a user and a pending goal and commit them, so other connections can see them."""
+    uid = uuid.uuid4()
+    conn.execute("insert into auth.users (id, email) values (%s, %s)", (uid, f"{uid}@example.com"))
+    gid = conn.execute(
+        "insert into goals (user_id, title) values (%s, 'Learn SQL') returning id", (uid,)
+    ).fetchone()["id"]
+    conn.commit()
+    return uid, gid
+
+
+def _cleanup(conn, uid, gid):
+    conn.rollback()
+    if gid:
+        conn.execute("delete from jobs where payload->>'goal_id' = %s", (str(gid),))
+    if uid:
+        # Cascades to public.users, goals, subtopics and usage_events.
+        conn.execute("delete from auth.users where id = %s", (uid,))
+    conn.commit()
+
+
+def test_handler_does_not_hold_goal_lock_during_llm_call():
+    a, b = connect(Settings()), connect(Settings())
+    uid = gid = None
+    try:
+        uid, gid = _committed_goal(a)
+        seen = {}
+
+        def archive():
+            try:
+                b.execute("set lock_timeout = '1s'")
+                b.execute("update goals set status = 'archived' where id = %s", (gid,))
+                b.commit()
+                seen["archived"] = True
+            except psycopg.Error as e:
+                b.rollback()
+                seen["error"] = repr(e)
+
+        TopicMapHandler(_CallbackLLM([fixture_resp()], archive)).run(a, make_job(gid))
+        assert seen == {"archived": True}
+    finally:
+        a.rollback()
+        _cleanup(a, uid, gid)
+        a.close()
+        b.close()
+
+
+def test_handler_skips_write_if_status_changed_during_call():
+    a, b = connect(Settings()), connect(Settings())
+    uid = gid = None
+    try:
+        uid, gid = _committed_goal(a)
+
+        def flip():
+            b.execute("set lock_timeout = '1s'")  # fail fast instead of deadlocking on a held lock
+            b.execute("update goals set map_status = 'failed' where id = %s", (gid,))
+            b.commit()
+
+        TopicMapHandler(_CallbackLLM([fixture_resp()], flip)).run(a, make_job(gid))
+        a.rollback()  # end any implicit transaction so the reads below see fresh data
+        assert rows(a, gid) == []
+        assert goal_row(a, gid)["map_status"] == "failed"
+        assert usage_count(a, uid) == 1
+    finally:
+        a.rollback()
+        _cleanup(a, uid, gid)
+        a.close()
+        b.close()
