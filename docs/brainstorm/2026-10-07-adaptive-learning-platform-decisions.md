@@ -27,7 +27,7 @@ A platform where users learn in the way that suits them:
 | 9 | Build constraints | Small team / solo, web app first, stack chosen by Claude. |
 | 10 | Architecture | **Next.js web app + Python worker + Supabase** (Postgres, auth, storage, pgvector). |
 | 11 | Who shapes the topic map (2026-10-10) | **The AI designs it; the user does not edit it.** Learners don't know a subject well enough to name, order, or nest its subtopics. The map is built from the goal and the user's level (beginner/intermediate/advanced) and shown as a visual mind map (goal → numbered main topics in learning order → child topics). The Phase 1 rename/move/nest/add/delete editor is removed. |
-| 12 | Sign-up (2026-10-10, **pending details**) | **No forced sign-up for the demo.** A visitor can set a goal (and later add sources) as a guest; sign-up is asked only when they want more. Proposed: Supabase anonymous sessions upgraded to a real account on sign-up. Open: sign-up triggers, guest limits (proposed 1 goal / 3 sources / ~5 lessons + captcha + IP rate limit), inline onboarding, guest cleanup (proposed 30 days). |
+| 12 | Sign-up (2026-10-10; defaults applied 2026-10-11) | **No forced sign-up.** Visitors get a silent guest session (Supabase anonymous sign-in), type a goal and pick their level on the first screen, and see their map. Guests get 1 active goal; sign-up ("Save your progress") converts the same account so nothing is lost. Format is asked later, when lessons exist. Later phases: guest caps of 3 sources / ~5 lessons; captcha + guest cleanup after 30 days before production. |
 
 ## Assumptions (not explicitly confirmed; correct if wrong)
 
