@@ -93,7 +93,19 @@ test("level badge", async ({ page }) => {
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page).toHaveURL(/\/goals$/);
   await createReadyMap(page);
+  const goalUrl = page.url();
   await expect(page.getByText("Built for: Advanced", { exact: true })).toBeVisible();
+
+  // The badge names the level the map was built for, so changing the learner's
+  // level afterwards must not change it.
+  await page.goto("/onboarding");
+  await page.getByRole("radio", { name: /Beginner/ }).check();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page).toHaveURL(/\/goals$/);
+  await page.goto(goalUrl);
+  await expect(mainButtons(page)).toHaveCount(MAP.length);
+  await expect(page.getByText("Built for: Advanced", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Built for: Beginner/)).toHaveCount(0);
 });
 
 test.describe("mobile", () => {
