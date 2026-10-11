@@ -19,7 +19,7 @@ A web platform where anyone can turn learning material they collect (web article
 | Personalization | Preferred **format**: `visual`, `text`, `examples`, `summary`. Stated at onboarding in v1; data collected to infer it later. |
 | Sources (v1) | Websites, YouTube (transcripts only), PDF uploads with a text layer. |
 | Visuals | Mermaid diagrams written by the AI and rendered in the browser. No AI-generated images. |
-| Relevance | Goal → editable topic map; sources mapped to subtopics with relevance scores and reasons; gaps shown. |
+| Relevance | Goal → AI-designed topic map (not user-editable), shown as a visual mind map; sources mapped to subtopics with relevance scores and reasons; gaps shown. |
 | Quizzes | Multiple choice, adaptive difficulty, decaying per-subtopic mastery with spaced review. |
 | Language | English only. |
 | Ownership | Each goal belongs to one user. |

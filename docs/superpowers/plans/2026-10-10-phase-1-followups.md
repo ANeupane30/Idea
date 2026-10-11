@@ -29,7 +29,6 @@ Items the per-task reviews and the final whole-branch review found and left for 
   - Use `(select auth.uid())` in policies.
   - Trim tabs and newlines in titles, not just spaces.
   - Take `FOR SHARE` on the parent lookup in the depth guard.
-  - Raise `subtopic_not_found` in `move_subtopic` when the row disappears.
   - Add pgTAP tests for cross-user update/delete and for rejecting `map_status` on insert.
 - **Worker:**
   - The `serve()` log message is misleading when connect raises a non-`OperationalError`.
@@ -43,5 +42,13 @@ Items the per-task reviews and the final whole-branch review found and left for 
   - `setGoalStatus` reports success on a 0-row update.
   - Duplicate React import in `goals-ui.tsx`. `busy` state needs try/finally.
   - Signed-in users can still reach `/sign-in`.
-  - Rename needs blur handling and double-Enter protection.
   - The README run commands are written in PowerShell style.
+
+## From the AI-designed visual map work
+
+- **Mobile sheet:** trap focus inside the topic bottom sheet, lock page scroll while it is open, and pad it for the safe area (`env(safe-area-inset-bottom)`).
+- **Desktop row gaps:** rows with children are taller than rows without, so the gaps between main topics are uneven on desktop.
+- **Cascade test:** when anything starts deleting subtopics again, re-add the parent→children cascade test, run as `postgres`.
+- **Stale test label:** the `subtopic_parent_same_goal` pgTAP test expects the `max_depth_exceeded` error, so its label no longer describes what it checks.
+- **Dead guard branches:** users can no longer write subtopics, so the `if current_user = 'authenticated'` branches in the trigger functions in `20261008000002_topic_map_rpc.sql` are dead code. Remove them in a future migration.
+- **Long-text layout test:** add an e2e layout test with a 120-character title and a 300-character summary (the worker's maximums) at mobile, 1024 and desktop widths.
