@@ -2,35 +2,26 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { buildTree, type SubtopicRow, type TreeNode } from "@/lib/topic-tree";
+import { buildTree, type SubtopicRow } from "@/lib/topic-tree";
 import { MapStatus } from "./MapStatus";
+import { TopicMap } from "./TopicMap";
 
-// Temporary read-only view; replaced by the visual mind map.
-function TopicList({ nodes }: { nodes: TreeNode[] }) {
-  return (
-    <ol className="ml-5 list-decimal space-y-2">
-      {nodes.map((n) => (
-        <li key={n.id}>
-          <p className="font-medium">{n.title}</p>
-          {n.summary && <p className="text-sm opacity-70">{n.summary}</p>}
-          {n.children.length > 0 && <TopicList nodes={n.children} />}
-        </li>
-      ))}
-    </ol>
-  );
-}
+const LEVELS = ["beginner", "intermediate", "advanced"] as const;
 
-async function TopicMapSlot({ goalId }: { goalId: string }) {
+async function TopicMapSlot({ goalId, goalTitle }: { goalId: string; goalTitle: string }) {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("subtopics")
-    .select("id, parent_id, title, summary, position, user_edited")
-    .eq("goal_id", goalId);
-  return (
-    <nav aria-label="Topic map" className="mt-4">
-      <TopicList nodes={buildTree((data ?? []) as SubtopicRow[])} />
-    </nav>
-  );
+  const [{ data: rows }, { data: auth }] = await Promise.all([
+    supabase
+      .from("subtopics")
+      .select("id, parent_id, title, summary, position, user_edited")
+      .eq("goal_id", goalId),
+    supabase.auth.getUser(),
+  ]);
+  const { data: prefs } = auth.user
+    ? await supabase.from("learning_prefs").select("level").eq("user_id", auth.user.id).maybeSingle()
+    : { data: null };
+  const level = LEVELS.find((l) => l === prefs?.level) ?? null;
+  return <TopicMap goalTitle={goalTitle} level={level} tree={buildTree((rows ?? []) as SubtopicRow[])} />;
 }
 
 async function Goal({ params }: { params: Promise<{ id: string }> }) {
@@ -45,10 +36,10 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
     .maybeSingle();
   if (!data) notFound();
   return (
-    <main className="mx-auto max-w-2xl p-6">
+    <main className="mx-auto w-full max-w-7xl p-4 sm:p-6">
       <h1 className="text-2xl font-semibold">{data.title}</h1>
       <MapStatus goal={data}>
-        {data.map_status === "ready" && <TopicMapSlot goalId={data.id} />}
+        {data.map_status === "ready" && <TopicMapSlot goalId={data.id} goalTitle={data.title} />}
       </MapStatus>
     </main>
   );

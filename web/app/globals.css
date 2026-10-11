@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Topic map detail panel: slides in from the right (desktop) or bottom (mobile). */
+@theme {
+  --animate-panel-in: panel-in 200ms ease-out;
+  --animate-sheet-in: sheet-in 220ms ease-out;
+
+  @keyframes panel-in {
+    from { transform: translateX(1.5rem); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+
+  @keyframes sheet-in {
+    from { transform: translateY(2rem); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
