@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { TreeNode } from "@/lib/topic-tree";
 
 export type Level = "beginner" | "intermediate" | "advanced";
@@ -12,13 +12,28 @@ const LEVEL_LABEL: Record<Level, string> = {
 };
 
 // One accent per branch, cycling. Full class strings so Tailwind can see them.
-type Accent = { badge: string; edge: string; line: string; chip: string; ring: string; text: string };
+type Accent = {
+  badge: string;
+  edge: string;
+  line: string;
+  /** Child chip text and hover; pair with chipIdle or chipSelected for border and fill. */
+  chip: string;
+  chipIdle: string;
+  chipSelected: string;
+  /** Border and fill of a selected main-topic card. */
+  cardSelected: string;
+  ring: string;
+  text: string;
+};
 const ACCENTS: Accent[] = [
   {
     badge: "bg-indigo-100 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300",
     edge: "border-l-indigo-500 dark:border-l-indigo-400",
     line: "bg-indigo-300 dark:bg-indigo-400/50",
-    chip: "border-indigo-200 bg-indigo-50 text-indigo-950 hover:bg-indigo-100 dark:border-indigo-400/25 dark:bg-indigo-400/10 dark:text-indigo-100 dark:hover:bg-indigo-400/20",
+    chip: "text-indigo-950 hover:bg-indigo-100 dark:text-indigo-100 dark:hover:bg-indigo-400/20",
+    chipIdle: "border-indigo-200 bg-indigo-50 dark:border-indigo-400/25 dark:bg-indigo-400/10",
+    chipSelected: "border-indigo-500 bg-indigo-100 dark:border-indigo-400 dark:bg-indigo-400/25",
+    cardSelected: "border-indigo-500 bg-indigo-50 dark:border-indigo-400 dark:bg-indigo-400/10",
     ring: "ring-indigo-500 dark:ring-indigo-400",
     text: "text-indigo-700 dark:text-indigo-300",
   },
@@ -26,7 +41,10 @@ const ACCENTS: Accent[] = [
     badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300",
     edge: "border-l-emerald-500 dark:border-l-emerald-400",
     line: "bg-emerald-300 dark:bg-emerald-400/50",
-    chip: "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-100 dark:hover:bg-emerald-400/20",
+    chip: "text-emerald-950 hover:bg-emerald-100 dark:text-emerald-100 dark:hover:bg-emerald-400/20",
+    chipIdle: "border-emerald-200 bg-emerald-50 dark:border-emerald-400/25 dark:bg-emerald-400/10",
+    chipSelected: "border-emerald-500 bg-emerald-100 dark:border-emerald-400 dark:bg-emerald-400/25",
+    cardSelected: "border-emerald-500 bg-emerald-50 dark:border-emerald-400 dark:bg-emerald-400/10",
     ring: "ring-emerald-500 dark:ring-emerald-400",
     text: "text-emerald-700 dark:text-emerald-300",
   },
@@ -34,7 +52,10 @@ const ACCENTS: Accent[] = [
     badge: "bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-300",
     edge: "border-l-amber-500 dark:border-l-amber-400",
     line: "bg-amber-300 dark:bg-amber-400/50",
-    chip: "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-100 dark:hover:bg-amber-400/20",
+    chip: "text-amber-950 hover:bg-amber-100 dark:text-amber-100 dark:hover:bg-amber-400/20",
+    chipIdle: "border-amber-200 bg-amber-50 dark:border-amber-400/25 dark:bg-amber-400/10",
+    chipSelected: "border-amber-500 bg-amber-100 dark:border-amber-400 dark:bg-amber-400/25",
+    cardSelected: "border-amber-500 bg-amber-50 dark:border-amber-400 dark:bg-amber-400/10",
     ring: "ring-amber-500 dark:ring-amber-400",
     text: "text-amber-800 dark:text-amber-300",
   },
@@ -42,7 +63,10 @@ const ACCENTS: Accent[] = [
     badge: "bg-rose-100 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300",
     edge: "border-l-rose-500 dark:border-l-rose-400",
     line: "bg-rose-300 dark:bg-rose-400/50",
-    chip: "border-rose-200 bg-rose-50 text-rose-950 hover:bg-rose-100 dark:border-rose-400/25 dark:bg-rose-400/10 dark:text-rose-100 dark:hover:bg-rose-400/20",
+    chip: "text-rose-950 hover:bg-rose-100 dark:text-rose-100 dark:hover:bg-rose-400/20",
+    chipIdle: "border-rose-200 bg-rose-50 dark:border-rose-400/25 dark:bg-rose-400/10",
+    chipSelected: "border-rose-500 bg-rose-100 dark:border-rose-400 dark:bg-rose-400/25",
+    cardSelected: "border-rose-500 bg-rose-50 dark:border-rose-400 dark:bg-rose-400/10",
     ring: "ring-rose-500 dark:ring-rose-400",
     text: "text-rose-700 dark:text-rose-300",
   },
@@ -50,7 +74,10 @@ const ACCENTS: Accent[] = [
     badge: "bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300",
     edge: "border-l-sky-500 dark:border-l-sky-400",
     line: "bg-sky-300 dark:bg-sky-400/50",
-    chip: "border-sky-200 bg-sky-50 text-sky-950 hover:bg-sky-100 dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-100 dark:hover:bg-sky-400/20",
+    chip: "text-sky-950 hover:bg-sky-100 dark:text-sky-100 dark:hover:bg-sky-400/20",
+    chipIdle: "border-sky-200 bg-sky-50 dark:border-sky-400/25 dark:bg-sky-400/10",
+    chipSelected: "border-sky-500 bg-sky-100 dark:border-sky-400 dark:bg-sky-400/25",
+    cardSelected: "border-sky-500 bg-sky-50 dark:border-sky-400 dark:bg-sky-400/10",
     ring: "ring-sky-500 dark:ring-sky-400",
     text: "text-sky-700 dark:text-sky-300",
   },
@@ -58,7 +85,10 @@ const ACCENTS: Accent[] = [
     badge: "bg-violet-100 text-violet-700 dark:bg-violet-400/15 dark:text-violet-300",
     edge: "border-l-violet-500 dark:border-l-violet-400",
     line: "bg-violet-300 dark:bg-violet-400/50",
-    chip: "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-400/25 dark:bg-violet-400/10 dark:text-violet-100 dark:hover:bg-violet-400/20",
+    chip: "text-violet-950 hover:bg-violet-100 dark:text-violet-100 dark:hover:bg-violet-400/20",
+    chipIdle: "border-violet-200 bg-violet-50 dark:border-violet-400/25 dark:bg-violet-400/10",
+    chipSelected: "border-violet-500 bg-violet-100 dark:border-violet-400 dark:bg-violet-400/25",
+    cardSelected: "border-violet-500 bg-violet-50 dark:border-violet-400 dark:bg-violet-400/10",
     ring: "ring-violet-500 dark:ring-violet-400",
     text: "text-violet-700 dark:text-violet-300",
   },
@@ -110,6 +140,7 @@ export function TopicMap({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const panelId = useId();
 
   const selection = findSelection(tree, selectedId);
 
@@ -123,13 +154,14 @@ export function TopicMap({
     openerRef.current?.focus();
   }
 
-  // Move focus into the panel whenever its topic changes, and on desktop keep
-  // the selected node in view (the map scrolls inside its own box when the
-  // panel leaves too little room).
+  // Move focus into the panel whenever its topic changes, and when the panel is
+  // the side card (xl+) keep the selected node in view (the map scrolls inside
+  // its own box if the panel ever leaves too little room). Below xl the panel
+  // is a bottom sheet, so it never narrows the map.
   useEffect(() => {
     if (!selectedId) return;
     panelRef.current?.focus({ preventScroll: true });
-    if (window.matchMedia("(min-width: 768px)").matches) {
+    if (window.matchMedia("(min-width: 1280px)").matches) {
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       document
         .querySelector(`[data-topic-id="${selectedId}"]`)
@@ -162,7 +194,7 @@ export function TopicMap({
         </p>
       </div>
 
-      <div className="mt-6 md:flex md:items-start md:gap-6">
+      <div className="mt-6 xl:flex xl:items-start xl:gap-6">
         <nav
           aria-label="Topic map"
           className="[--tm-half:1.25rem] md:flex md:w-fit md:min-w-0 md:max-w-full md:items-center md:scroll-p-6 md:overflow-x-auto md:rounded-3xl md:border md:border-zinc-200 md:bg-zinc-50/70 md:bg-[radial-gradient(circle,rgb(0_0_0/0.07)_1px,transparent_1px)] md:bg-size-[22px_22px] md:px-6 md:py-10 lg:px-8 lg:py-12 lg:[--tm-half:1.75rem] md:dark:border-zinc-800 md:dark:bg-zinc-900/40 md:dark:bg-[radial-gradient(circle,rgb(255_255_255/0.06)_1px,transparent_1px)]"
@@ -190,8 +222,16 @@ export function TopicMap({
                   <button
                     type="button"
                     data-topic-id={node.id}
+                    aria-expanded={selected}
+                    aria-controls={panelId}
                     onClick={(e) => open(node.id, e.currentTarget)}
-                    className={`group relative flex w-full items-start gap-3 rounded-xl border border-l-4 border-zinc-200 bg-white p-3 text-left shadow-sm transition hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none motion-reduce:hover:translate-y-0 md:w-56 md:shrink-0 md:items-center lg:w-64 xl:w-72 dark:border-zinc-800 dark:bg-zinc-900 dark:focus-visible:ring-offset-zinc-950 ${accent.edge} ${accent.ring} ${selected ? "ring-2 ring-offset-2 ring-offset-white dark:ring-offset-zinc-950" : ""}`}
+                    className={`group relative flex w-full items-start gap-3 rounded-xl border-l-4 text-left shadow-sm transition hover:-translate-y-px hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none motion-reduce:hover:translate-y-0 md:w-56 md:shrink-0 md:items-center lg:w-64 xl:w-72 dark:focus-visible:ring-offset-zinc-950 ${accent.edge} ${accent.ring} ${
+                      // Selection: tinted fill and a 2px accent border (padding
+                      // shrinks by 1px so the card does not move). Focus keeps the ring.
+                      selected
+                        ? `border-2 py-[11px] pl-3 pr-[11px] ${accent.cardSelected}`
+                        : "border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+                    }`}
                   >
                     <span
                       className={`grid size-7 shrink-0 place-items-center rounded-full text-sm font-bold tabular-nums ${accent.badge}`}
@@ -223,8 +263,14 @@ export function TopicMap({
                             <button
                               type="button"
                               data-topic-id={child.id}
+                              aria-expanded={childSelected}
+                              aria-controls={panelId}
                               onClick={(e) => open(child.id, e.currentTarget)}
-                              className={`max-w-full rounded-lg border px-3 py-1.5 text-left text-sm leading-5 transition [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none dark:focus-visible:ring-offset-zinc-950 ${accent.chip} ${accent.ring} ${childSelected ? "ring-2 ring-offset-2 ring-offset-white dark:ring-offset-zinc-950" : ""}`}
+                              className={`max-w-full rounded-lg text-left text-sm leading-5 transition [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white motion-reduce:transition-none dark:focus-visible:ring-offset-zinc-950 ${accent.chip} ${accent.ring} ${
+                                childSelected
+                                  ? `border-2 px-[11px] py-[5px] ${accent.chipSelected}`
+                                  : `border px-3 py-1.5 ${accent.chipIdle}`
+                              }`}
                             >
                               {child.title}
                             </button>
@@ -241,6 +287,7 @@ export function TopicMap({
   
         {selection && (
           <DetailPanel
+            id={panelId}
             selection={selection}
             total={tree.length}
             panelRef={panelRef}
@@ -254,7 +301,7 @@ export function TopicMap({
         <div
           aria-hidden
           onClick={close}
-          className="fixed inset-0 z-30 bg-zinc-950/40 motion-safe:animate-[fade-in_150ms_ease-out] md:hidden"
+          className="fixed inset-0 z-30 bg-zinc-950/40 motion-safe:animate-[fade-in_150ms_ease-out] xl:hidden"
         />
       )}
     </div>
@@ -273,12 +320,14 @@ function findSelection(tree: TreeNode[], id: string | null): Selection | null {
 }
 
 function DetailPanel({
+  id,
   selection,
   total,
   panelRef,
   onClose,
   onSelect,
 }: {
+  id: string;
   selection: Selection;
   total: number;
   panelRef: React.RefObject<HTMLDivElement | null>;
@@ -290,13 +339,14 @@ function DetailPanel({
   return (
     <div
       ref={panelRef}
+      id={id}
       role="dialog"
       aria-modal="false"
       aria-labelledby="topic-detail-title"
       tabIndex={-1}
-      className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] overflow-y-auto rounded-t-2xl border-t border-zinc-200 bg-white p-6 shadow-[0_-12px_40px_-12px_rgb(0_0_0/0.25)] outline-none motion-safe:animate-sheet-in md:sticky md:top-6 md:right-auto md:bottom-auto md:left-auto md:z-auto md:max-h-[calc(100vh-3rem)] md:w-72 md:shrink-0 md:rounded-3xl lg:w-80 md:border md:shadow-xl md:shadow-zinc-950/5 md:motion-safe:animate-panel-in dark:border-zinc-800 dark:bg-zinc-900 md:dark:shadow-black/30"
+      className="fixed inset-x-0 bottom-0 z-40 max-h-[70vh] overflow-y-auto rounded-t-2xl border-t border-zinc-200 bg-white p-6 shadow-[0_-12px_40px_-12px_rgb(0_0_0/0.25)] outline-none motion-safe:animate-sheet-in xl:sticky xl:top-6 xl:right-auto xl:bottom-auto xl:left-auto xl:z-auto xl:max-h-[calc(100vh-3rem)] xl:w-80 xl:shrink-0 xl:rounded-3xl xl:border xl:shadow-xl xl:shadow-zinc-950/5 xl:motion-safe:animate-panel-in dark:border-zinc-800 dark:bg-zinc-900 xl:dark:shadow-black/30"
     >
-      <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-300 md:hidden dark:bg-zinc-700" aria-hidden />
+      <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-zinc-300 xl:hidden dark:bg-zinc-700" aria-hidden />
       <div className="flex items-start justify-between gap-4">
         <p className={`text-xs font-semibold uppercase tracking-wider ${accent.text}`}>
           {parent ? `Part of: ${parent.title}` : `Topic ${index + 1} of ${total}`}
@@ -329,7 +379,7 @@ function DetailPanel({
                 <button
                   type="button"
                   onClick={() => onSelect(child.id)}
-                  className={`w-full rounded-lg border px-3 py-2 text-left text-sm leading-5 transition focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none ${accent.chip} ${accent.ring}`}
+                  className={`w-full rounded-lg border px-3 py-2 text-left text-sm leading-5 transition focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none ${accent.chip} ${accent.chipIdle} ${accent.ring}`}
                 >
                   {child.title}
                 </button>
