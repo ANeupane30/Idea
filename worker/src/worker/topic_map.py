@@ -225,10 +225,10 @@ class TopicMapHandler:
             if locked is None or locked["map_status"] != "pending" or self._has_map(conn, goal_id):
                 log.info("goal %s changed during topic map generation; not writing", goal_id)
                 return
-            self._write(conn, goal_id, result.output)
+            self._write(conn, goal_id, result.output, level)
 
     @staticmethod
-    def _write(conn: psycopg.Connection, goal_id: UUID, resp: TopicMapResponse) -> None:
+    def _write(conn: psycopg.Connection, goal_id: UUID, resp: TopicMapResponse, level: str) -> None:
         if resp.needs_clarification:
             conn.execute(
                 "update goals set map_status = 'clarifying', clarifying_question = %s,"
@@ -250,9 +250,9 @@ class TopicMapHandler:
                     (goal_id, parent, child.title.strip(), child.summary.strip(), cpos),
                 )
         conn.execute(
-            "update goals set map_status = 'ready', map_delayed = false, map_error = null"
-            " where id = %s",
-            (goal_id,),
+            "update goals set map_status = 'ready', map_level = %s, map_delayed = false,"
+            " map_error = null where id = %s",
+            (level, goal_id),
         )
 
     def on_retry(self, conn: psycopg.Connection, job: Job) -> None:

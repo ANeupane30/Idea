@@ -135,6 +135,27 @@ def test_handler_writes_map(db, make_user, make_goal):
     assert n == 1
 
 
+def test_handler_records_users_level_as_map_level(db, make_user, make_goal):
+    uid = make_user()
+    db.execute("insert into learning_prefs (user_id, level) values (%s, 'intermediate')", (uid,))
+    gid = make_goal(db, uid)
+    spy = SpyLLM([fixture_resp()])
+    TopicMapHandler(spy).run(db, make_job(gid))
+    assert "<level>intermediate</level>" in spy.calls[0]["user"]
+    g = goal_row(db, gid)
+    assert g["map_status"] == "ready" and g["map_level"] == "intermediate"
+
+
+def test_handler_map_level_defaults_to_beginner_without_prefs(db, make_user, make_goal):
+    uid = make_user()
+    assert db.execute("select 1 from learning_prefs where user_id = %s", (uid,)).fetchone() is None
+    gid = make_goal(db, uid)
+    spy = SpyLLM([fixture_resp()])
+    TopicMapHandler(spy).run(db, make_job(gid))
+    assert "<level>beginner</level>" in spy.calls[0]["user"]
+    assert goal_row(db, gid)["map_level"] == "beginner"
+
+
 def test_handler_clarify_sets_question(db, make_user, make_goal):
     gid = make_goal(db, make_user(), title="SQL [clarify]")
     TopicMapHandler(FakeLLM(FIXTURES)).run(db, make_job(gid))
