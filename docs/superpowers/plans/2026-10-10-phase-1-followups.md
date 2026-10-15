@@ -19,6 +19,7 @@ Items the per-task reviews and the final whole-branch review found and left for 
   - a non-superuser `DATABASE_URL` for the worker;
   - process supervision and SIGTERM handling.
 - Set the Supabase auth `minimum_password_length` to 8, to match the UI.
+- **Guests:** enable anonymous sign-ins and the per-IP anonymous sign-in rate limit on the hosted Supabase project (the local config only covers local). Add a captcha and clean up guests after 30 days (decision 12).
 - Replace the scaffold metadata ("Create Next App").
 - `npm audit`: the 5 "high" findings are one dev-only `braces` chain under `eslint-config-next`. `--omit=dev` reports 0. Don't apply the suggested downgrade.
 

@@ -150,6 +150,7 @@ Key points:
 - [x] Full spec written and approved by user
 - [x] Implementation plan (Phase 1: foundation, goals, topic map)
 - [x] Phase 1 implemented on branch `phase-1` (2026-10-10)
+- [x] Guest demo, no forced sign-up (decision 12), implemented on `phase-1` (2026-10-15)
 - [ ] Phase 2 (ingestion pipeline) plan
 
 ## Spec amendments (Phase 1)
