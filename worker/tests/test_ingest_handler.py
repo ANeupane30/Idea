@@ -199,6 +199,38 @@ def test_reuses_chunks_across_users(db, make_user, make_ready_goal, make_source)
     assert chunk_count(db, chash) == before
 
 
+def test_cached_chunks_from_another_embedding_model_are_reembedded(db, make_user, make_ready_goal, make_source):
+    """Vectors from different models aren't comparable: a cache hit under a new model re-embeds the chunks."""
+    import hashlib
+
+    class OtherModelEmbedder(FakeEmbedder):
+        model = "other-model-384"
+
+        def _one(self, text):
+            # Same idea, different vector space (salted buckets).
+            vec = [0.0] * 384
+            for word in __import__("re").findall(r"[a-z]{3,}", text.lower()):
+                vec[int(hashlib.sha1(b"salt" + word.encode()).hexdigest(), 16) % 384] += 1.0
+            norm = sum(x * x for x in vec) ** 0.5 or 1.0
+            return [x / norm for x in vec]
+
+    a, b = make_user(), make_user()
+    sa = make_source(a, make_ready_goal(a), "http://127.0.0.1/article.html")
+    handler().run(db, job(sa))
+    chash = source(db, sa)["content_hash"]
+    before = chunk_count(db, chash)
+
+    site = Site()
+    sb = make_source(b, make_ready_goal(b), "http://127.0.0.1/article.html")
+    handler(site=site, embedder=OtherModelEmbedder()).run(db, job(sb))
+    s = source(db, sb)
+    assert site.calls == 0
+    assert (s["status"], s["relevance_label"]) == ("ready", "high")
+    model = db.execute("select embed_model from contents where content_hash = %s", (chash,)).fetchone()["embed_model"]
+    assert model == "other-model-384"
+    assert chunk_count(db, chash) == before
+
+
 def test_duplicate_in_goal_fails(db, make_user, make_ready_goal, make_source):
     uid = make_user()
     gid = make_ready_goal(uid)

@@ -66,7 +66,6 @@ Items the per-task reviews and the final whole-branch review found and left for 
 - **Deferred minors from the final review:**
   - An unknown page charset makes the fetch retry instead of falling back to utf-8.
   - Chunks can fall below 500 tokens when the next sentence would pass 800.
-  - `contents.embed_model` isn't checked on a cache hit; re-embed when the model changes.
   - An off-topic source with no shortlisted subtopic has no reason line.
   - `PlaywrightRenderer.aborted` grows for the worker's lifetime.
   - `addPdfSource` doesn't schema-validate `fileName` and `goalId`.

@@ -147,6 +147,8 @@ class IngestHandler:
         if content is not None:
             _check_caps(limits, content["duration_s"], content["page_count"], content["token_count"])
             title = content["title"]
+            if content["embed_model"] != self._embedder.model:
+                self._reembed(conn, src["id"], chash)
         else:
             title = self._ingest(conn, src, kind, key, pdf_bytes, chash, limits)
 
@@ -227,6 +229,24 @@ class IngestHandler:
                         ],
                     )
         return extracted.title
+
+    def _reembed(self, conn: psycopg.Connection, source_id: UUID, chash: str) -> None:
+        """Cached chunks embedded by another model aren't comparable with this model's vectors."""
+        self._set_step(conn, source_id, "embedding")
+        with conn.transaction():
+            chunks = conn.execute(
+                "select id, text from source_chunks where content_hash = %s order by position", (chash,)
+            ).fetchall()
+        vectors = self._embedder.embed_passages([c["text"] for c in chunks])
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.executemany(
+                    "update source_chunks set embedding = %s where id = %s",
+                    [(np.asarray(v, dtype=np.float32), c["id"]) for c, v in zip(chunks, vectors)],
+                )
+            conn.execute(
+                "update contents set embed_model = %s where content_hash = %s", (self._embedder.model, chash)
+            )
 
     # ------------------------------------------------------------ mapping
 
