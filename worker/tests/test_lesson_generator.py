@@ -64,8 +64,9 @@ def lessons(db, tid):
 def test_generates_and_stores_lesson(db, make_user, make_ready_goal, make_source):
     uid, _, tid = ready_topic(db, make_user, make_ready_goal, make_source)
     events = run(gen(), db, uid, tid)
-    assert [e["type"] for e in events] == ["section", "section", "done"]
-    assert events[0]["index"] == 0 and events[0]["section"]["citations"] == [1]
+    assert [e["type"] for e in events] == ["start", "section", "section", "done"]
+    assert events[0]["sources"][0]["n"] == 1 and events[0]["sources"][0]["href"].startswith(ARTICLE)
+    assert events[1]["index"] == 0 and events[1]["section"]["citations"] == [1]
     (row,) = lessons(db, tid)
     assert row["status"] == "ready" and str(row["id"]) == events[-1]["lesson_id"]
     assert len(row["body"]["sections"]) == 2
@@ -159,7 +160,7 @@ def test_stale_generating_row_is_failed(db, make_user, make_ready_goal, make_sou
 def test_stream_error_marks_failed(db, make_user, make_ready_goal, make_source):
     uid, _, tid = ready_topic(db, make_user, make_ready_goal, make_source)
     events = run(gen(SpyLLM(fail_after=2)), db, uid, tid)
-    assert [e["type"] for e in events] == ["section", "section", "error"]
+    assert [e["type"] for e in events] == ["start", "section", "section", "error"]
     assert events[-1]["code"] == "failed"
     (row,) = lessons(db, tid)
     assert row["status"] == "failed"
@@ -192,6 +193,7 @@ def test_new_coverage_marks_lessons_stale(db, make_user, make_ready_goal, make_s
 def test_disconnect_marks_failed(db, make_user, make_ready_goal, make_source):
     uid, _, tid = ready_topic(db, make_user, make_ready_goal, make_source)
     events = gen().generate(db, uid, tid, "visual", False)
+    assert next(events)["type"] == "start"
     assert next(events)["type"] == "section"
     events.close()  # the client went away mid-stream
     (row,) = lessons(db, tid)

@@ -138,6 +138,8 @@ class LessonGenerator:
         system, user = build_lesson_prompt(topic["title"], topic["summary"], fmt, level, chunks)
         parser = SectionStream(len(chunks))
         try:
+            # The numbered sources first, so the browser can render [n] citations as sections arrive.
+            yield {"type": "start", "sources": sources}
             for text in self._llm.stream_text(model=MODEL, system=system, user=user, max_tokens=MAX_TOKENS, on_usage=bill):
                 for section in parser.feed(text):
                     (section,) = check_diagrams([section], self._validator, self._llm, bill)
