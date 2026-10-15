@@ -25,7 +25,8 @@ The local stack uses ports 56320-56329 (not Supabase's default 543xx, which Wind
    - `SUPABASE_SECRET_KEY=...` (the secret key from `npx supabase status`), so the worker can download uploaded PDFs; and either
    - `ANTHROPIC_API_KEY=...` for real topic maps and source matching, or
    - `LLM_PROVIDER=fake` to use the built-in fake LLM (no key, deterministic output).
-3. Install the worker's headless browser (used for web pages that need JavaScript): `cd worker && uv run playwright install chromium`.
+3. Lessons stream from the worker's lesson server. Put the same random value in `LESSON_SERVER_TOKEN` in both `worker/.env` and `web/.env.local`, and set `LESSON_SERVER_URL=http://127.0.0.1:8787` in `web/.env.local`.
+4. Install the worker's headless browser (used for web pages that need JavaScript): `cd worker && uv run playwright install chromium`.
 
 Embeddings come from a local model (`BAAI/bge-small-en-v1.5` via fastembed, about 130 MB, downloaded on first use). No API key is needed. `EMBEDDER=fake` switches to a deterministic test embedder.
 
@@ -34,6 +35,7 @@ Embeddings come from a local model (`BAAI/bge-small-en-v1.5` via fastembed, abou
 ```
 cd web; npm run dev                  # web app on http://localhost:3000
 cd worker; uv run python -m worker   # job worker (polls the jobs table)
+cd worker; uv run python -m worker.lesson_server   # lesson server on http://127.0.0.1:8787
 ```
 
 (In Git Bash use `&&` or separate lines instead of `;`.)
@@ -47,10 +49,10 @@ npm run db:reset     # apply migrations to a clean local DB
 npm run test:db      # pgTAP tests (supabase/tests)
 npm run test:worker  # worker pytest
 npm run test:web     # web Vitest unit tests
-npm run test:e2e     # Playwright; starts the web server, a fixture site and a fake-LLM worker itself
+npm run test:e2e     # Playwright; starts the web server, a fixture site, a fake-LLM worker and a lesson server itself
 ```
 
-> **Warning: stop any worker you started yourself before running `npm run test:e2e`.** The e2e run starts its own fake-LLM worker against the same local database. A separately running worker with a real `ANTHROPIC_API_KEY` would also pick up the e2e jobs, call Claude, and spend real money (and make the tests flaky).
+> **Warning: stop any worker or lesson server you started yourself before running `npm run test:e2e`.** The e2e run starts its own fake-LLM worker against the same local database. A separately running worker with a real `ANTHROPIC_API_KEY` would also pick up the e2e jobs, call Claude, and spend real money (and make the tests flaky).
 
 ## Live Claude smoke test (not yet run)
 
