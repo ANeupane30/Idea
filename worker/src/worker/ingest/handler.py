@@ -19,6 +19,7 @@ from psycopg import errors as pg_errors
 from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
+from worker.ingest.embeddings import ensure_subtopic_embeddings
 from worker.ingest.extract_pdf import extract_pdf
 from worker.ingest.extract_web import Renderer, extract_web
 from worker.ingest.extract_youtube import TranscriptSource, extract_youtube
@@ -250,26 +251,6 @@ class IngestHandler:
 
     # ------------------------------------------------------------ mapping
 
-    def _ensure_subtopic_embeddings(self, conn: psycopg.Connection, goal_id: UUID) -> None:
-        with conn.transaction():
-            missing = conn.execute(
-                "select s.id, s.title, s.summary from subtopics s left join subtopic_embeddings e"
-                " on e.subtopic_id = s.id and e.embed_model = %s where s.goal_id = %s and e.subtopic_id is null",
-                (self._embedder.model, goal_id),
-            ).fetchall()
-        if not missing:
-            return
-        texts = [f"{r['title']}: {r['summary']}" if r["summary"] else r["title"] for r in missing]
-        vectors = self._embedder.embed_queries(texts)
-        with conn.transaction():
-            with conn.cursor() as cur:
-                cur.executemany(
-                    "insert into subtopic_embeddings (subtopic_id, embed_model, embedding) values (%s, %s, %s)"
-                    " on conflict (subtopic_id) do update set embed_model = excluded.embed_model,"
-                    " embedding = excluded.embedding",
-                    [(r["id"], self._embedder.model, np.asarray(v, dtype=np.float32)) for r, v in zip(missing, vectors)],
-                )
-
     def _shortlist(self, conn: psycopg.Connection, goal_id: UUID, chash: str) -> list[tuple[UUID, ShortlistItem]]:
         with conn.transaction():
             rows = conn.execute(
@@ -320,7 +301,7 @@ class IngestHandler:
     def _map(self, conn: psycopg.Connection, src, chash: str, title: str | None) -> None:
         source_id = src["id"]
         self._set_step(conn, source_id, "mapping")
-        self._ensure_subtopic_embeddings(conn, src["goal_id"])
+        ensure_subtopic_embeddings(conn, self._embedder, src["goal_id"])
         shortlist = self._shortlist(conn, src["goal_id"], chash)
 
         rows: list[tuple[UUID, float, str]] = []
@@ -351,6 +332,8 @@ class IngestHandler:
                 " title = coalesce(%s, file_name, url_or_file) where id = %s",
                 (relevance, relevance, top[2] if top else None, title, source_id),
             )
+            # New coverage: the covered topics' lessons are out of date (shown as "Refresh lesson?").
+            conn.execute("select public.mark_lessons_stale(%s)", (source_id,))
 
     # ------------------------------------------------------------ hooks
 

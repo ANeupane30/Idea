@@ -1,0 +1,13 @@
+<section>
+<markdown>### Example: orders and customers
+
+`SELECT orders.id, customers.name FROM orders INNER JOIN customers ON orders.customer_id = customers.id` pairs each order with its customer.</markdown>
+<mermaid>graph LR; O[Order 7] --> C[Customer Ana]</mermaid>
+<cite>1</cite>
+</section>
+<section>
+<markdown>### Analogy
+
+Think of a join like matching name tags to seats: each tag (foreign key) points to exactly one seat (primary key).</markdown>
+<cite>1, 2</cite>
+</section>

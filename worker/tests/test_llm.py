@@ -11,6 +11,7 @@ from worker import llm
 from worker.config import Settings
 from worker.jobs import PermanentJobError
 from worker.llm import (
+    DEFAULT_FIXTURES_DIR,
     AnthropicLLM,
     FakeLLM,
     LLMOutputError,
@@ -225,3 +226,55 @@ def test_refusal_carries_usage():
         a.parse(model="claude-haiku-4-5", system="s", user="u", schema=Resp)
     assert isinstance(e.value, PermanentJobError)
     assert (e.value.input_tokens, e.value.output_tokens, e.value.model) == (5, 7, "claude-haiku-4-5")
+
+
+class _FakeStream:
+    def __init__(self, texts, final):
+        self.text_stream = iter(texts)
+        self._final = final
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get_final_message(self):
+        return self._final
+
+
+def test_anthropic_stream_text_passes_options():
+    from worker.llm import LLMRefusal
+
+    a = AnthropicLLM("test-key")
+    seen = {}
+
+    def stream(**kwargs):
+        seen.update(kwargs)
+        return _FakeStream(["Hel", "lo"], _resp(None, "end_turn"))
+
+    a._client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(stream=stream)))
+    usage = []
+    out = list(a.stream_text(model="claude-sonnet-5-5", system="s", user="u", max_tokens=99, on_usage=usage.append))
+    assert out == ["Hel", "lo"]
+    assert seen["output_config"] == {"effort": "medium"} and seen["fallbacks"] == "default"
+    assert seen["max_tokens"] == 99 and seen["messages"] == [{"role": "user", "content": "u"}]
+    assert (usage[0].input_tokens, usage[0].output_tokens) == (5, 7)
+
+    def refused(**kwargs):
+        return _FakeStream(["x"], _resp(None, "refusal"))
+
+    a._client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(stream=refused)))
+    usage = []
+    with pytest.raises(LLMRefusal):
+        list(a.stream_text(model="claude-sonnet-5-5", system="s", user="u", max_tokens=99, on_usage=usage.append))
+    assert len(usage) == 1
+
+
+def test_fake_stream_text_uses_format_fixture():
+    fake = FakeLLM(DEFAULT_FIXTURES_DIR)
+    usage = []
+    text = "".join(fake.stream_text(model="m", system="s", user="<format>summary</format>", max_tokens=9,
+                                    on_usage=usage.append))
+    assert "Joins combine rows from related tables." in text
+    assert len(usage) == 1
