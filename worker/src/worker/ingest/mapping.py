@@ -109,3 +109,11 @@ def fake_mapping_response(user: str) -> MappingResponse:
         share = len(wanted & _words(chunks)) / len(wanted) if wanted else 0.0
         results.append(MappingResult(key=html.unescape(key), relevance=round(share, 2), reason=f"Covers {title}."))
     return MappingResponse(results=results)
+
+
+def repair_user(user: str, errors: list[str]) -> str:
+    listed = "\n".join(f"- {e}" for e in errors)
+    return (
+        f"{user}\n\nYour previous response was invalid:\n<validation_errors>\n{listed}\n"
+        "</validation_errors>\nReturn a corrected response with exactly one result per subtopic key."
+    )

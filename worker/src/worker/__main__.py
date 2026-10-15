@@ -7,6 +7,11 @@ import psycopg
 
 from worker.config import Settings
 from worker.db import connect
+from worker.ingest.embed import make_embedder
+from worker.ingest.extract_web import PlaywrightRenderer
+from worker.ingest.extract_youtube import YouTubeTranscriptSource
+from worker.ingest.handler import IngestHandler
+from worker.ingest.storage import SupabaseStorage
 from worker.jobs import Handler, run_once
 from worker.llm import make_llm
 from worker.topic_map import TopicMapHandler
@@ -75,14 +80,28 @@ def serve(
         _close_quietly(conn)
 
 
+def build_handlers(settings: Settings) -> dict[str, Handler]:
+    if not settings.supabase_secret_key:
+        raise RuntimeError("SUPABASE_SECRET_KEY is required (to download uploaded PDFs)")
+    llm = make_llm(settings)
+    ingest = IngestHandler(
+        llm=llm,
+        embedder=make_embedder(settings),
+        storage=SupabaseStorage(settings.supabase_url, settings.supabase_secret_key),
+        renderer=PlaywrightRenderer(settings.fetch_allow_private_hosts),
+        transcripts=YouTubeTranscriptSource(),
+        allow_private=settings.fetch_allow_private_hosts,
+    )
+    return {"topic_map": TopicMapHandler(llm), "ingest_source": ingest}
+
+
 def main() -> None:
     logging.basicConfig(
         stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
     settings = Settings()
     log.info("worker started (provider=%s)", settings.llm_provider)
-    handlers: dict[str, Handler] = {"topic_map": TopicMapHandler(make_llm(settings))}
-    serve(lambda: connect(settings), handlers, settings.poll_interval_s)
+    serve(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s)
 
 
 if __name__ == "__main__":
