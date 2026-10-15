@@ -15,7 +15,7 @@ export async function createGoal(formData: FormData): Promise<ActionResult> {
 
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) redirect("/sign-in");
+  if (!auth.user) redirect("/");
 
   const { data, error } = await supabase
     .from("goals")

@@ -36,6 +36,9 @@ describe("dbErrorToMessage", () => {
     expect(dbErrorToMessage({ message: "not_clarifying" })).toBe("This goal's topic map has already moved on. Refresh the page.");
     expect(dbErrorToMessage({ message: "not_failed" })).toBe("This goal's topic map has already moved on. Refresh the page.");
     expect(dbErrorToMessage({ message: "invalid_answer" })).toBe("Please write an answer of up to 1000 characters.");
+    expect(dbErrorToMessage({ message: "guest_goal_limit_reached" })).toBe(
+      "Sign up free to save your progress and add more goals.",
+    );
     expect(dbErrorToMessage({ message: "boom" })).toBe("Something went wrong. Please try again.");
   });
 });

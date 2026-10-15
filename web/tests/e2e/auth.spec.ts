@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signUpFresh, TEST_PASSWORD } from "./helpers";
+import { signUpFresh, START_HEADING, TEST_PASSWORD } from "./helpers";
 
 test("sign up then sign out then sign in", async ({ page }) => {
   const email = await signUpFresh(page);
@@ -7,10 +7,13 @@ test("sign up then sign out then sign in", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Your goals" })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page).toHaveURL(/\/sign-in/);
+  // Signed out: back on the start page as a fresh guest, never forced to /sign-in.
+  await expect(page).toHaveURL(/\/$/);
   await page.goto("/goals");
-  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page.getByRole("heading", { name: START_HEADING })).toBeVisible();
+  await expect(page).not.toHaveURL(/\/sign-in/);
 
+  await page.goto("/sign-in");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(TEST_PASSWORD);
   await page.getByRole("button", { name: "Sign in" }).click();
@@ -20,7 +23,7 @@ test("sign up then sign out then sign in", async ({ page }) => {
 test("wrong password shows message", async ({ page }) => {
   const email = await signUpFresh(page);
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page).toHaveURL(/\/$/);
   await page.goto("/sign-in");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill("not-the-password");

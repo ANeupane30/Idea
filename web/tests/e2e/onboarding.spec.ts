@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { signUpRaw } from "./helpers";
+import { signUpRaw, START_HEADING } from "./helpers";
 
-test("fresh user is sent to onboarding, saves, and sees values again", async ({ page }) => {
+test("onboarding saves and shows values again", async ({ page }) => {
   await signUpRaw(page);
-  await expect(page).toHaveURL(/\/onboarding/);
+  await page.goto("/onboarding");
   for (const l of ["Visual", "Text", "Examples", "Summary", "Beginner", "Intermediate", "Advanced"]) {
     await expect(page.getByRole("radio", { name: new RegExp(l) })).toBeVisible();
   }
@@ -16,8 +16,9 @@ test("fresh user is sent to onboarding, saves, and sees values again", async ({ 
   await expect(page.getByRole("radio", { name: /Advanced/ })).toBeChecked();
 });
 
-test("goals redirects to onboarding without prefs", async ({ page }) => {
+test("goals redirects to the start page without prefs", async ({ page }) => {
   await signUpRaw(page);
   await page.goto("/goals");
-  await expect(page).toHaveURL(/\/onboarding/);
+  await expect(page.getByRole("heading", { name: START_HEADING })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
 });

@@ -102,7 +102,7 @@ test.describe("desktop", () => {
 
   test("level badge", async ({ page }) => {
     await signUpRaw(page);
-    await expect(page).toHaveURL(/\/onboarding/);
+    await page.goto("/onboarding");
     await page.getByRole("radio", { name: /Advanced/ }).check();
     await page.getByRole("button", { name: "Save" }).click();
     await expect(page).toHaveURL(/\/goals$/);

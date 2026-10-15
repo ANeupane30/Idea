@@ -9,7 +9,7 @@ async function Form() {
   await connection();
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
-  if (!data.user) redirect("/sign-in");
+  if (!data.user) redirect("/");
   const { data: prefs } = await supabase
     .from("learning_prefs")
     .select("preferred_format, level")

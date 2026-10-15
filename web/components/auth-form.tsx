@@ -7,9 +7,11 @@ import type { ActionResult } from "@/lib/validation";
 type Props = {
   mode: "sign-in" | "sign-up";
   action: (formData: FormData) => Promise<ActionResult>;
+  /** Shown under the heading, e.g. a warning for guests. */
+  notice?: React.ReactNode;
 };
 
-export function AuthForm({ mode, action }: Props) {
+export function AuthForm({ mode, action, notice }: Props) {
   const isSignUp = mode === "sign-up";
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     (_prev, formData) => action(formData),
@@ -19,6 +21,7 @@ export function AuthForm({ mode, action }: Props) {
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6">
       <h1 className="text-2xl font-semibold">{isSignUp ? "Create your account" : "Sign in"}</h1>
+      {notice}
       <form action={formAction} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
           Email

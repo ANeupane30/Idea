@@ -3,7 +3,7 @@ import { signUpRaw } from "./helpers";
 
 test("first run: sign up, onboard, create goal, map persists", async ({ page }) => {
   await signUpRaw(page);
-  await expect(page).toHaveURL(/\/onboarding/);
+  await page.goto("/onboarding");
   await page.getByRole("radio", { name: /Visual/ }).check();
   await page.getByRole("radio", { name: /Beginner/ }).check();
   await page.getByRole("button", { name: "Save" }).click();

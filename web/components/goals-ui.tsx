@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useActionState } from "react";
+import { FormError } from "@/components/form-error";
 import type { ActionResult } from "@/lib/validation";
 
 export type GoalRow = { id: string; title: string; status: string; statusText: string };
@@ -29,11 +30,7 @@ export function NewGoalForm({ action }: { action: (formData: FormData) => Promis
       >
         Create goal
       </button>
-      {state && !state.ok ? (
-        <div role="alert" className="text-sm text-red-700">
-          {state.error}
-        </div>
-      ) : null}
+      {state && !state.ok ? <FormError error={state.error} /> : null}
     </form>
   );
 }

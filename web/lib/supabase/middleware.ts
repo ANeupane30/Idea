@@ -1,9 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/sign-in", "/sign-up"];
-
-/** Refreshes the Supabase session and redirects anonymous users to /sign-in. */
+/**
+ * Refreshes the Supabase session. A visitor without one gets a guest (anonymous)
+ * session, so nobody is ever forced to sign up or sign in.
+ */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
 
@@ -16,6 +17,7 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
+          // Set on the request too, so this request's pages and actions see the new session.
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
           cookiesToSet.forEach(({ name, value, options }) =>
@@ -31,16 +33,11 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-  const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-
-  if (!user && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/sign-in";
-    url.search = "";
-    const redirect = NextResponse.redirect(url);
-    response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
-    return redirect;
+  if (!user) {
+    // setAll() above puts the guest's session cookies on `response`, which is returned
+    // as is (no redirect), so the browser keeps this one guest for later requests.
+    // If it fails (for example the per-IP rate limit), pages render without a user.
+    await supabase.auth.signInAnonymously();
   }
 
   return response;

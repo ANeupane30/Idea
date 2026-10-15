@@ -31,8 +31,12 @@ export const goalSchema = z.object({
     .optional(),
 });
 
+export const GUEST_GOAL_LIMIT = "Sign up free to save your progress and add more goals.";
+
 export function dbErrorToMessage(err: { message: string }): string {
   const m = err.message ?? "";
+  // Checked first: "guest_goal_limit_reached" also contains "goal_limit_reached".
+  if (m.includes("guest_goal_limit_reached")) return GUEST_GOAL_LIMIT;
   if (m.includes("goal_limit_reached")) return "Free plan allows 2 active goals. Archive one to add another.";
   if (m.includes("not_clarifying") || m.includes("not_failed"))
     return "This goal's topic map has already moved on. Refresh the page.";

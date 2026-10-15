@@ -13,7 +13,7 @@ export async function savePreferences(formData: FormData): Promise<ActionResult>
 
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
-  if (!data.user) redirect("/sign-in");
+  if (!data.user) redirect("/");
 
   const { error } = await supabase
     .from("learning_prefs")
