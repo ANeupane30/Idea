@@ -1,7 +1,7 @@
 # Adaptive Learning Platform — Brainstorm Decision Log
 
 **Started:** 2026-10-07
-**Status:** Phase 1 on branch `phase-1` (2026-10-10) and Phase 2 on branch `phase-2` (2026-10-15) implemented. Awaiting review and merge. This is a decision log, not the final spec.
+**Status:** Phase 1 on branch `phase-1` (2026-10-10) and Phase 2 on branch `phase-2` and Phase 3 on branch `phase-3` (2026-10-15/16) implemented. Awaiting review and merge. This is a decision log, not the final spec.
 
 ## The idea
 
@@ -152,7 +152,8 @@ Key points:
 - [x] Phase 1 implemented on branch `phase-1` (2026-10-10)
 - [x] Guest demo, no forced sign-up (decision 12), implemented on `phase-1` (2026-10-15)
 - [x] Phase 2 (ingestion pipeline) plan and implementation, on branch `phase-2` (2026-10-15)
-- [ ] Phase 3 (lessons) plan
+- [x] Phase 3 (lessons) plan and implementation, on branch `phase-3` (2026-10-16)
+- [ ] Phase 4 (quizzes and mastery) plan
 
 ## Spec amendments (Phase 1)
 
@@ -169,6 +170,14 @@ Key points:
 - Embeddings come from a local model, `BAAI/bge-small-en-v1.5` (384 dims, fastembed); no embedding API key.
 - Quotas: guests 3 sources in total; free 5 and Pro 50 a UTC day; failed sources don't count. Add and retry attempts are capped at 3x the daily limit (guests 10 in total). Length caps: free 90 min, 150 pages, 60,000 tokens; Pro 240 min, 600 pages, 250,000 tokens.
 - "Add X to the map" suggestions are deferred to a later phase (decided with the user 2026-10-15).
+
+## Spec amendments (Phase 3)
+
+- `lessons` gains `user_id`, `level`, `status (generating|ready|failed)`, `reused` and `delivered`. One generation at a time per topic and format.
+- `lesson_feedback` and `format_events` are as specified. `learning_prefs` gains `format_chosen` (asked on the first lesson; the start page doesn't ask).
+- Lessons stream from a token-protected worker HTTP server (`python -m worker.lesson_server`) through the Next.js route `/api/lessons`, as NDJSON: `start` (numbered sources), `section`, then `done` (or `lesson` / `error`).
+- Diagrams are validated with mermaid.js in the worker's headless Chromium (the same validator the Mermaid CLI uses), one repair, then dropped.
+- Limits: guests 5 lessons in total; free 15 and Pro 150 a UTC day. A cached copy of an identical lesson doesn't count and cites the user's own sources; a lesson that streamed content counts even if it was cut off.
 
 ## Implementation decisions (Phase 1)
 
@@ -189,4 +198,4 @@ Key points:
 
 ## Next
 
-Review and merge `phase-1` and `phase-2`, then write the Phase 3 (lessons) plan.
+Review and merge `phase-1`, `phase-2` and `phase-3`, then write the Phase 4 (quizzes and mastery) plan.
