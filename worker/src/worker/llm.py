@@ -137,11 +137,14 @@ class FakeLLM:
         # Imported here: the ingest modules import this one.
         from worker.ingest.mapping import MappingResponse, fake_mapping_response
         from worker.ingest.punctuate import PunctuationResponse, fake_punctuation_response
+        from worker.lessons.diagrams import MermaidFix
 
         if schema is MappingResponse:
             return LLMResult(fake_mapping_response(user), 100, 50, model)
         if schema is PunctuationResponse:
             return LLMResult(fake_punctuation_response(user), 100, 100, model)
+        if schema is MermaidFix:
+            return LLMResult(MermaidFix(mermaid="graph TD; A-->B"), 50, 20, model)
         clarify = "[clarify]" in user and "<clarification_answer>" not in user
         name = "topic_map_clarify.json" if clarify else "topic_map.json"
         output = schema.model_validate_json((self._dir / name).read_text(encoding="utf-8"))
