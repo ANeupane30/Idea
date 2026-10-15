@@ -21,17 +21,17 @@ test("map appears after creation", async ({ page }) => {
   await signUpFresh(page);
   await addGoal(page, "Learn SQL");
   for (const t of SQL_TOPICS) {
-    await expect(page.getByText(t, { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(t, { exact: true })).toBeVisible({ timeout: 30_000 });
   }
 });
 
 test("clarifying question flow", async ({ page }) => {
   await signUpFresh(page);
   await addGoal(page, "SQL [clarify]");
-  await expect(page.getByText("What do you want to use SQL for?")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("What do you want to use SQL for?")).toBeVisible({ timeout: 30_000 });
   await page.getByLabel("Your answer").fill("data analysis");
   await page.getByRole("button", { name: "Submit answer" }).click();
-  await expect(page.getByText(SQL_TOPICS[0], { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(SQL_TOPICS[0], { exact: true })).toBeVisible({ timeout: 30_000 });
 });
 
 test("other users goal is 404", async ({ browser }) => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LESSON_ERROR_TEXT, lessonRequestSchema, readEvents } from "@/lib/lessons";
+import { feedbackSchema, LESSON_ERROR_TEXT, lessonRequestSchema, readEvents } from "@/lib/lessons";
 
 function streamOf(...pieces: string[]): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
@@ -46,5 +46,16 @@ describe("lesson request and copy", () => {
       no_sources: "None of your sources cover this topic yet. Add one to get a lesson.",
       not_found: "We couldn't find this topic.",
     });
+  });
+});
+
+describe("feedbackSchema", () => {
+  it("needs a rating or a 1-2000 character report", () => {
+    expect(feedbackSchema.safeParse({ rating: "up" }).success).toBe(true);
+    expect(feedbackSchema.safeParse({ reportText: "The join example is wrong" }).success).toBe(true);
+    expect(feedbackSchema.safeParse({}).success).toBe(false);
+    expect(feedbackSchema.safeParse({ reportText: "   " }).success).toBe(false);
+    expect(feedbackSchema.safeParse({ reportText: "x".repeat(2001) }).success).toBe(false);
+    expect(feedbackSchema.safeParse({ rating: "meh" }).success).toBe(false);
   });
 });

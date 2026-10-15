@@ -58,3 +58,10 @@ export async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenera
   const last = buffer.trim();
   if (last) yield JSON.parse(last) as LessonEvent;
 }
+
+export const feedbackSchema = z
+  .object({
+    rating: z.enum(["up", "down"]).optional(),
+    reportText: z.string().trim().min(1).max(2000).optional(),
+  })
+  .refine((f) => f.rating !== undefined || f.reportText !== undefined, "Choose a rating or describe the problem.");

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FormError } from "@/components/form-error";
+import { LessonFeedback } from "@/components/lesson-feedback";
 import { LessonSections } from "@/components/lesson-sections";
 import {
   FORMAT_TEXT,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/lessons";
 import { searchQuery } from "@/lib/sources";
 import { SearchLinks } from "../../Coverage";
-import { chooseFormat, logFormatSwitch } from "./lesson-actions";
+import { chooseFormat, logFormatSwitch, sendFeedback } from "./lesson-actions";
 
 type Live = { status: "writing" | "error"; code?: string; sections: Section[]; sources: LessonSource[] };
 
@@ -186,8 +187,23 @@ export function LessonView({ goalTitle, subtopic, preferredFormat, formatChosen,
       </div>
 
       <div className="mt-6">
-        {lesson ? (
-          <LessonSections sections={lesson.body.sections} sources={lesson.body.sources} />
+        {lesson && !state ? (
+          <>
+            {lesson.stale && (
+              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+                <span>New sources available. Refresh lesson?</span>
+                <button
+                  type="button"
+                  onClick={() => void start(format, true)}
+                  className="rounded-lg bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-500 dark:bg-amber-500 dark:text-zinc-950"
+                >
+                  Refresh lesson
+                </button>
+              </div>
+            )}
+            <LessonSections sections={lesson.body.sections} sources={lesson.body.sources} />
+            <LessonFeedback key={lesson.id} lessonId={lesson.id} send={sendFeedback} />
+          </>
         ) : state?.status === "error" ? (
           <div className="flex flex-col items-start gap-3">
             <FormError error={LESSON_ERROR_TEXT[state.code ?? "failed"] ?? LESSON_ERROR_TEXT.failed} />
