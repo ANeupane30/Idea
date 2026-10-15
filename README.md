@@ -21,9 +21,13 @@ npx supabase start           # local Postgres + Auth; applies migrations
 The local stack uses ports 56320-56329 (not Supabase's default 543xx, which Windows can reserve). Guest sessions need anonymous sign-ins, which `supabase/config.toml` enables locally; a hosted project needs them enabled in its dashboard.
 
 1. Copy `web/.env.local.example` to `web/.env.local` and fill in the values from `npx supabase status` (API URL and anon/publishable key).
-2. Create `worker/.env` with either
-   - `ANTHROPIC_API_KEY=...` for real topic-map generation, or
+2. Create `worker/.env` with:
+   - `SUPABASE_SECRET_KEY=...` (the secret key from `npx supabase status`), so the worker can download uploaded PDFs; and either
+   - `ANTHROPIC_API_KEY=...` for real topic maps and source matching, or
    - `LLM_PROVIDER=fake` to use the built-in fake LLM (no key, deterministic output).
+3. Install the worker's headless browser (used for web pages that need JavaScript): `cd worker && uv run playwright install chromium`.
+
+Embeddings come from a local model (`BAAI/bge-small-en-v1.5` via fastembed, about 130 MB, downloaded on first use). No API key is needed. `EMBEDDER=fake` switches to a deterministic test embedder.
 
 ## Running
 
@@ -43,7 +47,7 @@ npm run db:reset     # apply migrations to a clean local DB
 npm run test:db      # pgTAP tests (supabase/tests)
 npm run test:worker  # worker pytest
 npm run test:web     # web Vitest unit tests
-npm run test:e2e     # Playwright; starts the web server and a fake-LLM worker itself
+npm run test:e2e     # Playwright; starts the web server, a fixture site and a fake-LLM worker itself
 ```
 
 > **Warning: stop any worker you started yourself before running `npm run test:e2e`.** The e2e run starts its own fake-LLM worker against the same local database. A separately running worker with a real `ANTHROPIC_API_KEY` would also pick up the e2e jobs, call Claude, and spend real money (and make the tests flaky).

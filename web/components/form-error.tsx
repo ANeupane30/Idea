@@ -1,16 +1,17 @@
 import Link from "next/link";
-import { GUEST_GOAL_LIMIT } from "@/lib/validation";
 
-/** A form's error line. The guest goal limit links to sign-up. */
+const SIGN_UP_PREFIX = "Sign up free";
+
+/** A form's error line. Guest-limit messages ("Sign up free …") link to sign-up. */
 export function FormError({ error, className = "" }: { error: string | null; className?: string }) {
   return (
     <div role="alert" className={`text-sm text-red-700 dark:text-red-400 ${className}`}>
-      {error === GUEST_GOAL_LIMIT ? (
+      {error?.startsWith(SIGN_UP_PREFIX) ? (
         <>
           <Link href="/sign-up" className="font-semibold underline underline-offset-2">
-            Sign up free
+            {SIGN_UP_PREFIX}
           </Link>
-          {GUEST_GOAL_LIMIT.slice("Sign up free".length)}
+          {error.slice(SIGN_UP_PREFIX.length)}
         </>
       ) : (
         error

@@ -2,8 +2,10 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { SOURCE_COLUMNS, type SourceRow } from "@/lib/sources";
 import { buildTree, type SubtopicRow } from "@/lib/topic-tree";
 import { MapStatus } from "./MapStatus";
+import { Sources } from "./Sources";
 import { TopicMap, type Level } from "./TopicMap";
 
 const LEVELS = ["beginner", "intermediate", "advanced"] as const;
@@ -23,6 +25,23 @@ async function TopicMapSlot({
     .select("id, parent_id, title, summary, position, user_edited")
     .eq("goal_id", goalId);
   return <TopicMap goalTitle={goalTitle} level={level} tree={buildTree((rows ?? []) as SubtopicRow[])} />;
+}
+
+async function SourcesSlot({ goalId, archived }: { goalId: string; archived: boolean }) {
+  const supabase = await createClient();
+  const [{ data: auth }, { data: rows }] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase
+      .from("sources")
+      .select(SOURCE_COLUMNS)
+      .eq("goal_id", goalId)
+      .order("created_at", { ascending: false })
+      .order("id"),
+  ]);
+  if (!auth.user) return null;
+  return (
+    <Sources goalId={goalId} userId={auth.user.id} archived={archived} sources={(rows ?? []) as SourceRow[]} />
+  );
 }
 
 async function Goal({ params }: { params: Promise<{ id: string }> }) {
@@ -48,6 +67,7 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
             level={LEVELS.find((l) => l === data.map_level) ?? null}
           />
         )}
+        {data.map_status === "ready" && <SourcesSlot goalId={data.id} archived={data.status === "archived"} />}
       </MapStatus>
     </main>
   );
