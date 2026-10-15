@@ -26,8 +26,12 @@ class SpyLLM:
         pieces = list(self.fake.stream_text(model=model, system=system, user=user, max_tokens=max_tokens,
                                             on_usage=lambda r: None))
         if self.fail_after is None:
-            yield from pieces
-            on_usage(LLMResult(None, 100, 400, model))
+            done = False
+            try:
+                yield from pieces
+                done = True
+            finally:  # like the real client: a stream closed early is billed too
+                on_usage(LLMResult(None, 100, 400 if done else 200, model))
             return
         text = "".join(pieces)
         cut = [i for i in range(len(text)) if text.startswith("</section>", i)][1] + len("</section>")
@@ -40,10 +44,10 @@ def gen(llm=None):
     return LessonGenerator(llm or SpyLLM(), FakeEmbedder(), FakeDiagramValidator())
 
 
-def ready_topic(db, make_user, make_ready_goal, make_source, title="Joining tables", uid=None):
+def ready_topic(db, make_user, make_ready_goal, make_source, title="Joining tables", uid=None, url=ARTICLE):
     uid = uid or make_user()
     gid = make_ready_goal(uid)
-    sid = make_source(uid, gid, ARTICLE)
+    sid = make_source(uid, gid, url)
     ingest_handler().run(db, ingest_job(sid))
     tid = db.execute(
         "select id from subtopics where goal_id = %s and title = %s", (gid, title)
@@ -90,13 +94,18 @@ def test_second_request_returns_stored_lesson(db, make_user, make_ready_goal, ma
 def test_reuses_lesson_with_same_cache_key(db, make_user, make_ready_goal, make_source):
     uid, _, tid = ready_topic(db, make_user, make_ready_goal, make_source)
     run(gen(), db, uid, tid)
-    other, _, other_tid = ready_topic(db, make_user, make_ready_goal, make_source)
+    # Same content under another user's own link: the copy cites that user's source, not the first one's.
+    other_url = f"{ARTICLE}?utm_source=other-user"
+    other, _, other_tid = ready_topic(db, make_user, make_ready_goal, make_source, url=other_url)
     llm = SpyLLM()
     events = run(gen(llm), db, other, other_tid)
     assert [e["type"] for e in events] == ["lesson"]
     assert llm.streams == 0
     (row,) = lessons(db, other_tid)
     assert row["reused"] is True and row["user_id"] == other
+    hrefs = [s["href"] for s in row["body"]["sources"]]
+    assert hrefs and all(h.startswith(other_url) for h in hrefs)
+    assert events[0]["lesson"]["body"]["sources"] == row["body"]["sources"]
 
 
 def test_no_sources(db, make_user, make_ready_goal, make_source):
@@ -195,9 +204,12 @@ def test_disconnect_marks_failed(db, make_user, make_ready_goal, make_source):
     events = gen().generate(db, uid, tid, "visual", False)
     assert next(events)["type"] == "start"
     assert next(events)["type"] == "section"
-    events.close()  # the client went away mid-stream
+    events.close()  # the client went away mid-stream, after receiving content
     (row,) = lessons(db, tid)
     assert row["status"] == "failed"
+    assert row["delivered"] is True  # still counts toward the limit
+    n = db.execute("select count(*) as n from usage_events where user_id = %s and kind = 'lesson'", (uid,)).fetchone()["n"]
+    assert n == 1  # and the partial stream is billed
 
 
 def test_uses_real_connection_without_open_transaction():

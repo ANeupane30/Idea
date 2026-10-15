@@ -139,6 +139,7 @@ class AnthropicLLM:
     def stream_text(
         self, *, model: str, system: str, user: str, max_tokens: int, on_usage: Callable[[LLMResult], None]
     ) -> Iterator[str]:
+        final = None
         try:
             with self._client.beta.messages.stream(
                 model=model,
@@ -147,8 +148,13 @@ class AnthropicLLM:
                 messages=[{"role": "user", "content": user}],
                 **_MODEL_OPTIONS.get(model, {}),
             ) as stream:
-                yield from stream.text_stream
-                final = stream.get_final_message()
+                try:
+                    yield from stream.text_stream
+                    final = stream.get_final_message()
+                finally:
+                    if final is None:
+                        # Closed early (the reader went away) or failed mid-stream: bill what was used so far.
+                        _bill_snapshot(stream, model, on_usage)
         except _PERMANENT_API_ERRORS as e:
             log.exception("Anthropic request rejected (%s)", type(e).__name__)
             raise LLMRefusal(REFUSAL_MESSAGE, model=model) from e
@@ -157,6 +163,15 @@ class AnthropicLLM:
             raise LLMRefusal(REFUSAL_MESSAGE, model=final.model)
         if final.stop_reason == "max_tokens":
             raise LLMOutputError("output cut off at max_tokens", model=final.model)
+
+
+def _bill_snapshot(stream, model: str, on_usage: Callable[[LLMResult], None]) -> None:
+    try:
+        snapshot = stream.current_message_snapshot
+        usage = snapshot.usage
+        on_usage(LLMResult(None, usage.input_tokens, usage.output_tokens, getattr(snapshot, "model", None) or model))
+    except Exception:
+        log.exception("could not bill a partial stream")
 
 
 class FakeLLM:
@@ -188,9 +203,14 @@ class FakeLLM:
     ) -> Iterator[str]:
         match = re.search(r"<format>(\w+)</format>", user)
         text = (self._dir / f"lesson_{match.group(1) if match else 'text'}.txt").read_text(encoding="utf-8")
-        for i in range(0, len(text), 40):
-            yield text[i : i + 40]
-        on_usage(LLMResult(None, 100, 400, model))
+        done = False
+        try:
+            for i in range(0, len(text), 40):
+                yield text[i : i + 40]
+            done = True
+        finally:
+            # Like the real client: a stream closed early is billed for what it produced.
+            on_usage(LLMResult(None, 100, 400 if done else 200, model))
 
 
 def make_llm(settings: Settings) -> LLM:

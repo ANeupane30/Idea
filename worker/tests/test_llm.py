@@ -271,6 +271,22 @@ def test_anthropic_stream_text_passes_options():
     assert len(usage) == 1
 
 
+def test_anthropic_stream_closed_early_bills_snapshot():
+    a = AnthropicLLM("test-key")
+
+    class Snapshot(_FakeStream):
+        current_message_snapshot = _resp(None, None)
+
+    a._client = SimpleNamespace(
+        beta=SimpleNamespace(messages=SimpleNamespace(stream=lambda **kw: Snapshot(["a", "b", "c"], None)))
+    )
+    usage = []
+    gen = a.stream_text(model="claude-sonnet-5-5", system="s", user="u", max_tokens=9, on_usage=usage.append)
+    assert next(gen) == "a"
+    gen.close()  # the reader stopped early
+    assert [(u.input_tokens, u.output_tokens) for u in usage] == [(5, 7)]
+
+
 def test_fake_stream_text_uses_format_fixture():
     fake = FakeLLM(DEFAULT_FIXTURES_DIR)
     usage = []
