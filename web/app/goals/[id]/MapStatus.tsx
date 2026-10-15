@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { createBrowserClient } from "@/lib/supabase/client";
 import { answerClarification, retryTopicMap } from "../actions";
 
 export type MapGoal = {
@@ -20,11 +21,34 @@ export function MapStatus({ goal, children }: { goal: MapGoal; children?: React.
   const [isPending, startTransition] = useTransition();
   const archived = goal.status === "archived";
 
+  // While the map is being built, poll just its status and refresh the page once when it changes.
+  // (Refreshing the whole page every 2 s raced React's commits and could crash the page.)
+  const [delayed, setDelayed] = useState(goal.map_delayed);
+  const [prevDelayed, setPrevDelayed] = useState(goal.map_delayed);
+  if (goal.map_delayed !== prevDelayed) {
+    setPrevDelayed(goal.map_delayed);
+    setDelayed(goal.map_delayed);
+  }
   useEffect(() => {
     if (goal.map_status !== "pending") return;
-    const timer = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(timer);
-  }, [goal.map_status, router]);
+    const supabase = createBrowserClient();
+    let stopped = false;
+    const timer = setInterval(async () => {
+      const { data } = await supabase.from("goals").select("map_status, map_delayed").eq("id", goal.id).maybeSingle();
+      if (stopped || !data) return;
+      if (data.map_status !== "pending") {
+        stopped = true;
+        clearInterval(timer);
+        router.refresh();
+      } else {
+        setDelayed(data.map_delayed);
+      }
+    }, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [goal.map_status, goal.id, router]);
 
   function run(action: () => ReturnType<typeof retryTopicMap>) {
     setError(null);
@@ -39,7 +63,7 @@ export function MapStatus({ goal, children }: { goal: MapGoal; children?: React.
     return (
       <div role="status" className="mt-4">
         <p>Building your topic map…</p>
-        {goal.map_delayed && <p className="text-sm text-zinc-600">Processing is delayed. We&apos;ll keep trying.</p>}
+        {delayed && <p className="text-sm text-zinc-600">Processing is delayed. We&apos;ll keep trying.</p>}
       </div>
     );
   }
