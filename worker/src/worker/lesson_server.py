@@ -25,6 +25,7 @@ from worker.llm import make_llm
 log = logging.getLogger("worker.lesson_server")
 
 MAX_BODY = 4096
+DRAIN_LIMIT = 64 * 1024
 
 
 def _parse(raw: bytes) -> tuple[UUID, UUID, str, bool] | None:
@@ -58,19 +59,30 @@ def make_server(
         def do_GET(self):
             self._reply(404)
 
+        def _read_body(self) -> bytes | None:
+            """The request body, or None if it is missing or too large. The body is read (up to
+            DRAIN_LIMIT) before any reply, so the client sees the status instead of a reset."""
+            try:
+                length = int(self.headers.get("content-length", "0"))
+            except ValueError:
+                length = -1
+            if 0 < length <= DRAIN_LIMIT:
+                raw = self.rfile.read(length)
+            else:
+                self.close_connection = True
+                return None
+            return raw if length <= MAX_BODY else None
+
         def do_POST(self):
+            raw = self._read_body()
             if self.path != "/lessons":
                 return self._reply(404)
             given = self.headers.get("authorization", "").encode()
             if not settings.lesson_server_token or not hmac.compare_digest(given, expected):
                 return self._reply(401)
-            try:
-                length = int(self.headers.get("content-length", "0"))
-            except ValueError:
+            if raw is None:
                 return self._reply(400)
-            if not 0 < length <= MAX_BODY:
-                return self._reply(400)
-            request = _parse(self.rfile.read(length))
+            request = _parse(raw)
             if request is None:
                 return self._reply(400)
 
