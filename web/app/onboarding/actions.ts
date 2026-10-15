@@ -17,7 +17,7 @@ export async function savePreferences(formData: FormData): Promise<ActionResult>
 
   const { error } = await supabase
     .from("learning_prefs")
-    .upsert({ user_id: data.user.id, ...parsed.data }, { onConflict: "user_id" });
+    .upsert({ user_id: data.user.id, ...parsed.data, format_chosen: true }, { onConflict: "user_id" });
   if (error) return { ok: false, error: GENERIC_ERROR };
   // The client navigates to /goals with a full page load (see PreferencesForm), so it never
   // reuses a cached "/goals redirects to /onboarding" router entry from before the save.

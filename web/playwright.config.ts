@@ -1,4 +1,19 @@
+import fs from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
+
+/** The dev server reads web/.env.local; the e2e lesson server must use the same token. */
+function envLocal(name: string): string | undefined {
+  try {
+    const line = fs
+      .readFileSync(".env.local", "utf-8")
+      .split(/\r?\n/)
+      .find((l) => l.startsWith(`${name}=`));
+    return line?.slice(name.length + 1).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+const LESSON_TOKEN = process.env.LESSON_SERVER_TOKEN ?? envLocal("LESSON_SERVER_TOKEN") ?? "e2e-lesson-token";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -12,6 +27,7 @@ export default defineConfig({
     {
       command: "npm run dev",
       url: "http://localhost:3000",
+      env: { LESSON_SERVER_URL: "http://127.0.0.1:8787", LESSON_SERVER_TOKEN: LESSON_TOKEN },
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
@@ -21,6 +37,14 @@ export default defineConfig({
       wait: { stdout: /worker started/ },
       // Fake LLM and embeddings; private hosts allowed so it can fetch the fixture site below.
       env: { LLM_PROVIDER: "fake", EMBEDDER: "fake", FETCH_ALLOW_PRIVATE_HOSTS: "true" },
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // Streams lessons; not an HTTP health URL, ready once it logs "lesson server started".
+      command: "uv run --directory ../worker python -m worker.lesson_server",
+      wait: { stdout: /lesson server started/ },
+      env: { LLM_PROVIDER: "fake", EMBEDDER: "fake", LESSON_SERVER_TOKEN: LESSON_TOKEN },
       reuseExistingServer: false,
       timeout: 60_000,
     },
