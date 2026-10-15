@@ -2,7 +2,9 @@
 
 Like the topic map job, no transaction stays open across slow work (fetching,
 extraction, embedding, LLM calls). Each step's state is committed on its own, so the
-UI sees live progress and a retry resumes from the shared chunk cache.
+UI sees live progress and a retry resumes from the shared chunk cache. Every
+statement runs inside `with conn.transaction():`; a bare execute would open an
+implicit transaction that never commits.
 """
 
 import hashlib
@@ -126,7 +128,8 @@ class IngestHandler:
             raise PermanentJobError(messages.DUPLICATE)
 
         # 3. Shared cache, or 4. extract + clean + chunk + embed.
-        content = conn.execute("select * from contents where content_hash = %s", (chash,)).fetchone()
+        with conn.transaction():
+            content = conn.execute("select * from contents where content_hash = %s", (chash,)).fetchone()
         if content is not None:
             _check_caps(limits, content["duration_s"], content["page_count"], content["token_count"])
             title = content["title"]
@@ -214,11 +217,12 @@ class IngestHandler:
     # ------------------------------------------------------------ mapping
 
     def _ensure_subtopic_embeddings(self, conn: psycopg.Connection, goal_id: UUID) -> None:
-        missing = conn.execute(
-            "select s.id, s.title, s.summary from subtopics s left join subtopic_embeddings e"
-            " on e.subtopic_id = s.id and e.embed_model = %s where s.goal_id = %s and e.subtopic_id is null",
-            (self._embedder.model, goal_id),
-        ).fetchall()
+        with conn.transaction():
+            missing = conn.execute(
+                "select s.id, s.title, s.summary from subtopics s left join subtopic_embeddings e"
+                " on e.subtopic_id = s.id and e.embed_model = %s where s.goal_id = %s and e.subtopic_id is null",
+                (self._embedder.model, goal_id),
+            ).fetchall()
         if not missing:
             return
         texts = [f"{r['title']}: {r['summary']}" if r["summary"] else r["title"] for r in missing]
@@ -233,16 +237,17 @@ class IngestHandler:
                 )
 
     def _shortlist(self, conn: psycopg.Connection, goal_id: UUID, chash: str) -> list[tuple[UUID, ShortlistItem]]:
-        rows = conn.execute(
-            "select s.id, s.title, s.summary, x.text, x.sim from subtopics s"
-            " join subtopic_embeddings e on e.subtopic_id = s.id and e.embed_model = %s"
-            " cross join lateral (select c.text, 1 - (c.embedding <=> e.embedding) as sim from source_chunks c"
-            "   where c.content_hash = %s order by c.embedding <=> e.embedding limit %s) x"
-            " where s.goal_id = %s"
-            " order by coalesce((select p.position from subtopics p where p.id = s.parent_id), s.position),"
-            "   s.parent_id nulls first, s.position, x.sim desc",
-            (self._embedder.model, chash, _TOP_K, goal_id),
-        ).fetchall()
+        with conn.transaction():
+            rows = conn.execute(
+                "select s.id, s.title, s.summary, x.text, x.sim from subtopics s"
+                " join subtopic_embeddings e on e.subtopic_id = s.id and e.embed_model = %s"
+                " cross join lateral (select c.text, 1 - (c.embedding <=> e.embedding) as sim from source_chunks c"
+                "   where c.content_hash = %s order by c.embedding <=> e.embedding limit %s) x"
+                " where s.goal_id = %s"
+                " order by coalesce((select p.position from subtopics p where p.id = s.parent_id), s.position),"
+                "   s.parent_id nulls first, s.position, x.sim desc",
+                (self._embedder.model, chash, _TOP_K, goal_id),
+            ).fetchall()
         grouped: dict[UUID, dict] = {}
         for r in rows:
             g = grouped.setdefault(r["id"], {"title": r["title"], "summary": r["summary"], "chunks": [], "best": 0.0})

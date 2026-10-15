@@ -362,6 +362,61 @@ def test_permanent_failure_hook(db, make_user, make_ready_goal, make_source):
     assert (s["status"], s["error"], s["step"], s["delayed"]) == ("failed", "Nope.", None, False)
 
 
+def test_commits_each_step_and_leaves_no_transaction_open():
+    """On real connections (no outer test transaction): another connection sees live steps and the result."""
+    import uuid
+
+    import psycopg
+
+    from worker.db import connect
+
+    a, b = connect(Settings()), connect(Settings())
+    uid = uuid.uuid4()
+    url = f"http://127.0.0.1/article.html?commit_test={uid}"
+    try:
+        with a.transaction():
+            a.execute("insert into auth.users (id, email) values (%s, %s)", (uid, f"{uid}@example.com"))
+            gid = a.execute(
+                "insert into goals (user_id, title, map_status) values (%s, 'Learn SQL', 'ready') returning id", (uid,)
+            ).fetchone()["id"]
+            a.execute(
+                "insert into subtopics (goal_id, title, summary, position) values (%s, 'Joining tables',"
+                " 'Combine rows from related tables using inner and left joins.', 0)",
+                (gid,),
+            )
+            sid = a.execute(
+                "insert into sources (user_id, goal_id, type, url_or_file) values (%s, %s, 'web', %s) returning id",
+                (uid, gid, url),
+            ).fetchone()["id"]
+        seen = []
+
+        def committed_step():
+            row = b.execute("select step from sources where id = %s", (sid,)).fetchone()
+            b.rollback()
+            seen.append(row["step"])
+
+        class StepEmbedder(FakeEmbedder):
+            def embed_passages(self, texts):
+                committed_step()
+                return super().embed_passages(texts)
+
+        llm = SpyLLM(on_call=lambda schema: committed_step())
+        handler(llm=llm, embedder=StepEmbedder()).run(a, job(sid))
+
+        assert a.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        assert seen[0] == "embedding" and seen[-1] == "mapping"
+        row = b.execute("select status, relevance_label from sources where id = %s", (sid,)).fetchone()
+        assert (row["status"], row["relevance_label"]) == ("ready", "high")
+    finally:
+        a.rollback()
+        b.rollback()
+        with a.transaction():
+            a.execute("delete from contents where content_hash = %s", (content_hash("web", url),))
+            a.execute("delete from auth.users where id = %s", (uid,))
+        a.close()
+        b.close()
+
+
 def test_main_registers_ingest(monkeypatch):
     from worker import __main__ as main_mod
 
