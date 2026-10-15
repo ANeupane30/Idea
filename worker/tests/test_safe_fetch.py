@@ -50,6 +50,8 @@ def fetch(url: str, handler) -> safe_fetch.FetchedPage:
         "http://192.168.1.1/",
         "http://0.0.0.0/",
         "http://localhost/",
+        "http://100.100.100.200/latest/meta-data/",
+        "http://100.64.0.1/",
         "file:///etc/passwd",
         "ftp://example.com/",
     ],

@@ -36,7 +36,7 @@ from worker.ingest.storage import Storage
 from worker.ingest.types import Extracted, Segment
 from worker.ingest.urls import content_hash, normalize_url, youtube_video_id
 from worker.jobs import Job, PermanentJobError
-from worker.llm import LLM, LLMOutputError, LLMResult, record_usage
+from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult, record_usage
 
 log = logging.getLogger(__name__)
 
@@ -87,15 +87,29 @@ class IngestHandler:
     # ------------------------------------------------------------ helpers
 
     @staticmethod
-    def _set_step(conn: psycopg.Connection, source_id: UUID, step: str) -> None:
+    def _heartbeat(conn: psycopg.Connection, source_id: UUID) -> None:
+        """Refresh the running job's lock so a long ingest isn't reclaimed by another worker."""
+        conn.execute(
+            "update jobs set locked_at = now() where status = 'running' and kind = 'ingest_source'"
+            " and payload->>'source_id' = %s",
+            (str(source_id),),
+        )
+
+    def _set_step(self, conn: psycopg.Connection, source_id: UUID, step: str) -> None:
         with conn.transaction():
             conn.execute(
                 "update sources set step = %s where id = %s and status = 'processing'", (step, source_id)
             )
+            self._heartbeat(conn, source_id)
 
-    def _bill(self, conn: psycopg.Connection, user_id: UUID, kind: str):
+    def _bill(self, conn: psycopg.Connection, source_id: UUID, user_id: UUID, kind: str):
         # Each call's usage commits right away, so it survives a later failure.
-        return lambda result: record_usage(conn, user_id, kind, result)
+        def bill(result: LLMResult) -> None:
+            record_usage(conn, user_id, kind, result)
+            with conn.transaction():
+                self._heartbeat(conn, source_id)
+
+        return bill
 
     # ------------------------------------------------------------ the job
 
@@ -169,7 +183,7 @@ class IngestHandler:
         segments = [Segment(clean_transcript_text(s.text), s.location) for s in extracted.segments]
         segments = [s for s in segments if s.text]
         if extracted.auto_captions:
-            texts = repair_punctuation(self._llm, [s.text for s in segments], self._bill(conn, src["user_id"], "ingest"))
+            texts = repair_punctuation(self._llm, [s.text for s in segments], self._bill(conn, src["id"], src["user_id"], "ingest"))
             segments = [Segment(t, s.location) for t, s in zip(texts, segments)]
         return segments
 
@@ -259,8 +273,8 @@ class IngestHandler:
             for i, (sid, g) in enumerate(shortlisted)
         ]
 
-    def _rate(self, conn, user_id, goal_title: str, batch: list[ShortlistItem]) -> MappingResponse:
-        bill = self._bill(conn, user_id, "map")
+    def _rate(self, conn, source_id, user_id, goal_title: str, batch: list[ShortlistItem]) -> MappingResponse:
+        bill = self._bill(conn, source_id, user_id, "map")
         system, user = build_mapping_prompt(goal_title, batch)
         keys = [item.key for item in batch]
         prompt = user
@@ -271,6 +285,10 @@ class IngestHandler:
                 if e.input_tokens or e.output_tokens:
                     bill(LLMResult(None, e.input_tokens, e.output_tokens, e.model or MAPPING_MODEL))
                 errors = [f"no valid structured output was returned ({e})"]
+            except LLMRefusal as e:
+                if e.input_tokens or e.output_tokens:
+                    bill(LLMResult(None, e.input_tokens, e.output_tokens, e.model or MAPPING_MODEL))
+                raise PermanentJobError(messages.MAPPING_FAILED) from e
             else:
                 bill(result)
                 errors = validate_mapping(result.output, keys)
@@ -289,7 +307,7 @@ class IngestHandler:
         for start in range(0, len(shortlist), BATCH):
             batch = shortlist[start : start + BATCH]
             ids = {item.key: sid for sid, item in batch}
-            resp = self._rate(conn, src["user_id"], src["goal_title"], [item for _, item in batch])
+            resp = self._rate(conn, source_id, src["user_id"], src["goal_title"], [item for _, item in batch])
             rows.extend((ids[r.key], round(r.relevance, 2), r.reason.strip()) for r in resp.results)
 
         top = max(rows, key=lambda r: r[1], default=None)

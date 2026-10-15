@@ -32,14 +32,9 @@ def _is_public(addr: str) -> bool:
     ip = ipaddress.ip_address(addr.split("%")[0])
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
         ip = ip.ipv4_mapped
-    return not (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
+    # is_global excludes private, loopback, link-local, CGNAT (100.64/10, which holds a cloud
+    # metadata address, 100.100.100.200), reserved and other special-purpose ranges.
+    return ip.is_global and not ip.is_multicast
 
 
 def check_host_allowed(url: str, allow_private: bool) -> None:

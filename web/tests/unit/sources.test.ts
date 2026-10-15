@@ -4,6 +4,7 @@ import {
   COVERAGE_TEXT,
   detectLinkType,
   goalTopic,
+  isUploadPath,
   LABEL_TEXT,
   linkSchema,
   searchQuery,
@@ -74,6 +75,9 @@ describe("dbErrorToMessage for sources", () => {
     );
     expect(dbErrorToMessage({ message: "goal_archived" })).toBe("Unarchive this goal to add sources.");
     expect(dbErrorToMessage({ message: "invalid_source" })).toBe("That link or file can't be added.");
+    expect(dbErrorToMessage({ message: "source_attempt_limit_reached" })).toBe(
+      "You've tried adding sources too many times today. Try again tomorrow.",
+    );
   });
 });
 
@@ -135,5 +139,15 @@ describe("addNextItems", () => {
       f: cov("covered"),
     };
     expect(addNextItems(tree, coverage).map((n) => n.id)).toEqual(["b", "a1", "c"]);
+  });
+});
+
+describe("isUploadPath", () => {
+  const uid = "11111111-1111-4111-8111-111111111111";
+  it("accepts only <user id>/<uuid>.pdf", () => {
+    expect(isUploadPath(uid, `${uid}/22222222-2222-4222-8222-222222222222.pdf`)).toBe(true);
+    expect(isUploadPath(uid, `${uid}/../x/22222222-2222-4222-8222-222222222222.pdf`)).toBe(false);
+    expect(isUploadPath(uid, `${uid}/notes.pdf`)).toBe(false);
+    expect(isUploadPath(uid, `33333333-3333-4333-8333-333333333333/22222222-2222-4222-8222-222222222222.pdf`)).toBe(false);
   });
 });

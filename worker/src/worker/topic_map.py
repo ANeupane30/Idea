@@ -9,7 +9,7 @@ import psycopg
 from pydantic import BaseModel
 
 from worker.jobs import Job, PermanentJobError
-from worker.llm import LLM, LLMOutputError, LLMResult, record_usage
+from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult, record_usage
 
 log = logging.getLogger(__name__)
 
@@ -173,6 +173,11 @@ class TopicMapHandler:
                 billed = LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL)
                 record_usage(conn, user_id, "topic_map", billed)
             return None, [f"no valid structured output was returned ({e})"]
+        except LLMRefusal as e:
+            if e.input_tokens or e.output_tokens:
+                billed = LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL)
+                record_usage(conn, user_id, "topic_map", billed)
+            raise
         record_usage(conn, user_id, "topic_map", result)
         return result, validate_topic_map(result.output, allow_clarify)
 

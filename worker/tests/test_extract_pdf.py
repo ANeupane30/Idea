@@ -70,16 +70,34 @@ def test_storage_download():
         return httpx.Response(200, content=b"%PDF-data")
 
     storage = SupabaseStorage("http://supabase.test", "secret", transport=httpx.MockTransport(handler))
-    assert storage.download("user/file.pdf") == b"%PDF-data"
-    assert seen == {"url": "http://supabase.test/storage/v1/object/sources/user/file.pdf", "auth": "Bearer secret"}
+    assert storage.download("11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.pdf") == b"%PDF-data"
+    assert seen == {"url": "http://supabase.test/storage/v1/object/sources/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.pdf", "auth": "Bearer secret"}
 
 
 def test_storage_missing_file_is_permanent():
     storage = SupabaseStorage("http://supabase.test", "k", transport=httpx.MockTransport(lambda r: httpx.Response(404)))
-    assert message(lambda: storage.download("u/missing.pdf")) == messages.BAD_PDF
+    assert message(lambda: storage.download("11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.pdf")) == messages.BAD_PDF
 
 
 def test_storage_server_error_retries():
     storage = SupabaseStorage("http://supabase.test", "k", transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     with pytest.raises(httpx.HTTPStatusError):
-        storage.download("u/f.pdf")
+        storage.download("11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.pdf")
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "11111111-1111-4111-8111-111111111111/../22222222-2222-4222-8222-222222222222/22222222-2222-4222-8222-222222222222.pdf",
+        "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.pdf/../../other",
+        "../auth/v1/admin/users",
+        "11111111-1111-4111-8111-111111111111/notes.pdf",
+        "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.PDF",
+    ],
+)
+def test_storage_rejects_unexpected_paths(path):
+    def handler(request):
+        raise AssertionError("must not be requested")
+
+    storage = SupabaseStorage("http://supabase.test", "k", transport=httpx.MockTransport(handler))
+    assert message(lambda: storage.download(path)) == messages.BAD_PDF

@@ -203,3 +203,25 @@ def test_anthropic_rate_limit_is_not_permanent():
     a._client = SimpleNamespace(beta=SimpleNamespace(messages=_RaisingBetaMessages(exc)))
     with pytest.raises(anthropic.RateLimitError):
         a.parse(model="claude-sonnet-5-5", system="s", user="u", schema=Resp)
+
+
+def test_haiku_gets_no_effort_or_fallbacks():
+    """Haiku 4.5 rejects output_config.effort and has no server-side refusal fallback."""
+    parsed = Resp(needs_clarification=False, clarifying_question=None, subtopics=[])
+    a, msgs = _llm_with(_resp(parsed, model="claude-haiku-4-5"))
+    a.parse(model="claude-haiku-4-5", system="sys", user="usr", schema=Resp)
+    k = msgs.kwargs
+    assert k["model"] == "claude-haiku-4-5"
+    assert k["output_format"] is Resp
+    for absent in ("output_config", "fallbacks", "betas", "thinking"):
+        assert absent not in k, absent
+
+
+def test_refusal_carries_usage():
+    from worker.llm import LLMRefusal
+
+    a, _ = _llm_with(_resp(None, "refusal", model="claude-haiku-4-5"))
+    with pytest.raises(LLMRefusal) as e:
+        a.parse(model="claude-haiku-4-5", system="s", user="u", schema=Resp)
+    assert isinstance(e.value, PermanentJobError)
+    assert (e.value.input_tokens, e.value.output_tokens, e.value.model) == (5, 7, "claude-haiku-4-5")

@@ -79,11 +79,13 @@ export function Sources({ goalId, userId, archived, sources }: Props) {
     }
     run(async () => {
       const path = `${userId}/${crypto.randomUUID()}.pdf`;
-      const { error: uploadError } = await createBrowserClient()
-        .storage.from("sources")
-        .upload(path, file, { contentType: "application/pdf" });
+      const storage = createBrowserClient().storage.from("sources");
+      const { error: uploadError } = await storage.upload(path, file, { contentType: "application/pdf" });
       if (uploadError) return { ok: false, error: GENERIC_ERROR };
-      return addPdfSource(goalId, path, file.name);
+      const result = await addPdfSource(goalId, path, file.name);
+      // Don't leave the file behind when the source couldn't be added (e.g. a limit).
+      if (!result.ok) await storage.remove([path]);
+      return result;
     }, reset);
   }
 

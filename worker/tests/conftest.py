@@ -116,6 +116,18 @@ def site_server():
         def log_message(self, *args):
             pass
 
+        def do_GET(self):
+            # /redirect?to=<url> answers 302 to <url> (for redirect-to-private tests).
+            from urllib.parse import parse_qs, urlsplit
+
+            parts = urlsplit(self.path)
+            if parts.path == "/redirect":
+                self.send_response(302)
+                self.send_header("Location", parse_qs(parts.query)["to"][0])
+                self.end_headers()
+                return
+            super().do_GET()
+
     handler = functools.partial(Quiet, directory=str(SITES_DIR))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

@@ -40,6 +40,8 @@ export function dbErrorToMessage(err: { message: string }): string {
   // Guest errors first: "guest_x_limit_reached" also contains "x_limit_reached".
   if (m.includes("guest_goal_limit_reached")) return GUEST_GOAL_LIMIT;
   if (m.includes("guest_source_limit_reached")) return GUEST_SOURCE_LIMIT;
+  if (m.includes("source_attempt_limit_reached"))
+    return "You've tried adding sources too many times today. Try again tomorrow.";
   if (m.includes("source_limit_reached")) return "You've reached today's limit for new sources. Try again tomorrow.";
   if (m.includes("goal_not_ready")) return "Wait for your topic map to finish before adding sources.";
   if (m.includes("goal_archived")) return "Unarchive this goal to add sources.";

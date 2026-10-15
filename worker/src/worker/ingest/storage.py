@@ -1,5 +1,6 @@
 """Downloads uploaded PDFs from the Supabase Storage bucket `sources`."""
 
+import re
 from typing import Protocol
 from urllib.parse import quote
 
@@ -10,6 +11,9 @@ from worker.ingest.messages import BAD_PDF
 from worker.jobs import PermanentJobError
 
 BUCKET = "sources"
+_UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+# The only shape the web app uploads: <user id>/<random uuid>.pdf (no dot segments).
+PATH_RE = re.compile(rf"^{_UUID}/{_UUID}\.pdf$")
 
 
 class Storage(Protocol):
@@ -23,6 +27,8 @@ class SupabaseStorage:
         self._transport = transport
 
     def download(self, path: str) -> bytes:
+        if not PATH_RE.match(path):
+            raise PermanentJobError(BAD_PDF)
         headers = {"authorization": f"Bearer {self._key}", "apikey": self._key}
         url = f"{self._url}/storage/v1/object/{BUCKET}/{quote(path)}"
         with httpx.Client(transport=self._transport, timeout=30.0) as client:

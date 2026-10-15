@@ -13,6 +13,13 @@ const YOUTUBE_HOSTS = new Set([
 ]);
 
 export const PDF_MAX_BYTES = 25 * 1024 * 1024;
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+/** The only upload path accepted (database and worker check the same shape): <user id>/<uuid>.pdf. */
+export function isUploadPath(userId: string, path: string): boolean {
+  return new RegExp(`^${UUID}/${UUID}\.pdf$`).test(path) && path.startsWith(`${userId}/`);
+}
 export const PDF_TOO_BIG = "PDFs can be up to 25 MB.";
 const LINK_MESSAGE = "Enter a link that starts with http:// or https://";
 

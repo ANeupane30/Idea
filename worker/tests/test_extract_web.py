@@ -88,3 +88,32 @@ def test_renderer_blocks_private_page():
     with pytest.raises(PermanentJobError) as e:
         PlaywrightRenderer(allow_private=False).render("http://127.0.0.1:9/")
     assert e.value.message == messages.BLOCKED
+
+
+def _block_localhost(monkeypatch):
+    """127.0.0.1 is allowed (the fixture server); the name "localhost" stands in for a private host."""
+
+    def check(url: str, allow_private: bool) -> None:
+        from urllib.parse import urlsplit
+
+        if urlsplit(url).hostname == "localhost":
+            raise PermanentJobError(messages.BLOCKED)
+
+    monkeypatch.setattr(extract_web_module.safe_fetch, "check_host_allowed", check)
+
+
+def test_renderer_blocks_navigation_redirect_to_private(site_server, monkeypatch):
+    _block_localhost(monkeypatch)
+    renderer = PlaywrightRenderer(allow_private=False)
+    html = renderer.render(f"{site_server}/js_redirect.html")
+    assert "TOPSECRET" not in html
+    assert any("localhost" in u for u in renderer.aborted)
+
+
+def test_renderer_blocks_subrequest_redirect_to_private(site_server, monkeypatch):
+    _block_localhost(monkeypatch)
+    renderer = PlaywrightRenderer(allow_private=False)
+    html = renderer.render(f"{site_server}/js_fetch_redirect.html")
+    assert "Start page." in html
+    assert "TOPSECRET" not in html
+    assert any("localhost" in u for u in renderer.aborted)

@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from worker.llm import LLM, LLMOutputError, LLMResult
+from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult
 
 MODEL = "claude-haiku-4-5"
 WINDOW = 150
@@ -40,7 +40,8 @@ def repair_punctuation(llm: LLM, texts: list[str], bill: Callable[[LLMResult], N
         window = texts[start : start + WINDOW]
         try:
             result = llm.parse(model=MODEL, system=_SYSTEM, user=_user(window), schema=PunctuationResponse)
-        except LLMOutputError as e:
+        except (LLMOutputError, LLMRefusal) as e:
+            # Keep the raw captions: unpunctuated text still chunks and maps.
             if e.input_tokens or e.output_tokens:
                 bill(LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL))
             out.extend(window)

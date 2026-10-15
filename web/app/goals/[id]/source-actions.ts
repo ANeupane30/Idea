@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { detectLinkType, linkSchema } from "@/lib/sources";
+import { detectLinkType, isUploadPath, linkSchema } from "@/lib/sources";
 import { dbErrorToMessage, GENERIC_ERROR, type ActionResult } from "@/lib/validation";
 
 const CANT_ADD = "That link or file can't be added.";
@@ -31,7 +31,7 @@ export async function addPdfSource(goalId: string, path: string, fileName: strin
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return { ok: false, error: GENERIC_ERROR };
-  if (!path.startsWith(`${auth.user.id}/`) || !path.endsWith(".pdf") || path.includes("..")) {
+  if (typeof path !== "string" || typeof fileName !== "string" || !isUploadPath(auth.user.id, path)) {
     return { ok: false, error: CANT_ADD };
   }
 

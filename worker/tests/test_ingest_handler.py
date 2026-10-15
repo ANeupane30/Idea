@@ -1,4 +1,5 @@
 import json
+import uuid
 from pathlib import Path
 
 import httpx
@@ -252,7 +253,7 @@ def test_not_a_video(db, make_user, make_ready_goal, make_source):
 
 def test_pdf_source(db, make_user, make_ready_goal, make_source):
     uid = make_user()
-    sid = make_source(uid, make_ready_goal(uid), f"{uid}/abc.pdf", type="pdf", file_name="notes.pdf")
+    sid = make_source(uid, make_ready_goal(uid), f"{uid}/{uuid.uuid4()}.pdf", type="pdf", file_name="notes.pdf")
     handler(storage=Storage((FIXTURES / "sql_basics.pdf").read_bytes())).run(db, job(sid))
     s = source(db, sid)
     assert s["status"] == "ready"
@@ -298,6 +299,44 @@ def test_mapping_repair_then_fail(db, make_user, make_ready_goal, make_source):
         "select count(*) as n from usage_events where user_id = %s and kind = 'map'", (uid,)
     ).fetchone()["n"]
     assert n == 2
+
+
+def test_mapping_refusal_fails_with_mapping_message_and_bills(db, make_user, make_ready_goal, make_source):
+    from worker.llm import LLMRefusal
+
+    uid = make_user()
+    sid = make_source(uid, make_ready_goal(uid), "http://127.0.0.1/article.html")
+
+    class Refuses(SpyLLM):
+        def parse(self, *, model, system, user, schema, max_tokens=16000):
+            if schema is MappingResponse:
+                raise LLMRefusal("We couldn't build a topic map for this goal. Try rewording it.", 12, 3, model)
+            return super().parse(model=model, system=system, user=user, schema=schema, max_tokens=max_tokens)
+
+    run_queued(db, handler(llm=Refuses()), sid)
+    s = source(db, sid)
+    assert (s["status"], s["error"]) == ("failed", messages.MAPPING_FAILED)
+    n = db.execute(
+        "select count(*) as n from usage_events where user_id = %s and kind = 'map'", (uid,)
+    ).fetchone()["n"]
+    assert n == 1
+
+
+def test_heartbeat_keeps_job_claimed(db, make_user, make_ready_goal, make_source):
+    """Each step refreshes the job's lock, so a long job isn't reclaimed by another worker."""
+    uid = make_user()
+    sid = make_source(uid, make_ready_goal(uid), "http://127.0.0.1/article.html")
+    db.execute(
+        "update jobs set status = 'running', locked_at = now() - interval '20 minutes'"
+        " where payload->>'source_id' = %s",
+        (str(sid),),
+    )
+    handler().run(db, job(sid))
+    stale = db.execute(
+        "select locked_at < now() - interval '10 minutes' as stale from jobs where payload->>'source_id' = %s",
+        (str(sid),),
+    ).fetchone()["stale"]
+    assert stale is False
 
 
 def test_transient_error_marks_delayed(db, make_user, make_ready_goal, make_source):
@@ -364,8 +403,6 @@ def test_permanent_failure_hook(db, make_user, make_ready_goal, make_source):
 
 def test_commits_each_step_and_leaves_no_transaction_open():
     """On real connections (no outer test transaction): another connection sees live steps and the result."""
-    import uuid
-
     import psycopg
 
     from worker.db import connect
@@ -429,7 +466,5 @@ def test_main_registers_ingest(monkeypatch):
 
 
 def test_not_found_source_is_noop(db):
-    import uuid
-
     handler().run(db, job(uuid.uuid4()))
 
