@@ -1,4 +1,8 @@
+import functools
+import http.server
+import threading
 import uuid
+from pathlib import Path
 
 import pytest
 from psycopg.types.json import Jsonb
@@ -60,3 +64,25 @@ def make_goal(db):
         return row["id"]
 
     return _make_goal
+
+
+SITES_DIR = Path(__file__).parent / "fixtures" / "sites"
+
+
+@pytest.fixture(scope="session")
+def site_server():
+    """Serves tests/fixtures/sites on 127.0.0.1; yields the base URL."""
+
+    class Quiet(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    handler = functools.partial(Quiet, directory=str(SITES_DIR))
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()

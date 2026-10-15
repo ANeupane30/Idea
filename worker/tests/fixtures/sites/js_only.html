@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>SQL filtering, rendered by JavaScript</title></head>
+<body>
+<div id="app"></div>
+<script>
+  // A private-network request the headless renderer must abort.
+  fetch("http://10.255.255.1/x").catch(() => {});
+  const paragraphs = [
+    "Filtering with WHERE keeps only the rows that match a condition. Writing SELECT name FROM customers WHERE city = 'Paris' keeps the rows whose city is Paris, and leaves out every other row in the table.",
+    "Conditions use comparison operators such as equals, less than and greater than. You can combine several conditions with the logical operators AND, OR and NOT, so WHERE price > 10 AND stock > 0 keeps only the rows that match both parts.",
+    "Text can be matched with LIKE and a pattern, where the percent sign stands for any run of characters. Writing WHERE name LIKE 'A%' keeps the names that start with the letter A, and IN lets you match any value from a short list.",
+    "Missing values are stored as NULL, and NULL never equals anything, not even another NULL. To find missing values you write WHERE column IS NULL, and to keep only present values you write WHERE column IS NOT NULL."
+  ];
+  const article = document.createElement("article");
+  const h1 = document.createElement("h1");
+  h1.textContent = "SQL filtering, rendered by JavaScript";
+  article.appendChild(h1);
+  for (const text of paragraphs) {
+    const p = document.createElement("p");
+    p.textContent = text;
+    article.appendChild(p);
+  }
+  document.getElementById("app").appendChild(article);
+</script>
+</body>
+</html>
