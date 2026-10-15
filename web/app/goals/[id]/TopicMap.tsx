@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { LABEL_TEXT, searchQuery, type NodeCoverage } from "@/lib/sources";
 import type { TreeNode } from "@/lib/topic-tree";
+import { CoverageBadge, SearchLinks } from "./Coverage";
 
 export type Level = "beginner" | "intermediate" | "advanced";
 
@@ -132,10 +134,13 @@ export function TopicMap({
   goalTitle,
   level,
   tree,
+  coverage,
 }: {
   goalTitle: string;
   level: Level | null;
   tree: TreeNode[];
+  /** Per-subtopic coverage; badges show only when given (the goal has a ready source). */
+  coverage?: Record<string, NodeCoverage>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
@@ -238,8 +243,11 @@ export function TopicMap({
                     >
                       {i + 1}
                     </span>{" "}
-                    <span className="min-w-0 pt-0.5 text-[15px] font-medium leading-6 text-zinc-900 [overflow-wrap:anywhere] md:pt-0 md:leading-snug dark:text-zinc-100">
-                      {node.title}
+                    <span className="min-w-0 pt-0.5 md:pt-0">
+                      <span className="block text-[15px] font-medium leading-6 text-zinc-900 [overflow-wrap:anywhere] md:leading-snug dark:text-zinc-100">
+                        {node.title}
+                      </span>
+                      {coverage?.[node.id] && <CoverageBadge state={coverage[node.id].state} className="mt-1" />}
                     </span>
                     {node.children.length > 0 && (
                       <span
@@ -273,6 +281,12 @@ export function TopicMap({
                               }`}
                             >
                               {child.title}
+                              {coverage?.[child.id] && (
+                                <>
+                                  {" "}
+                                  <CoverageBadge state={coverage[child.id].state} className="ml-1" />
+                                </>
+                              )}
                             </button>
                           </li>
                         );
@@ -290,6 +304,8 @@ export function TopicMap({
             id={panelId}
             selection={selection}
             total={tree.length}
+            goalTitle={goalTitle}
+            coverage={coverage?.[selection.node.id]}
             panelRef={panelRef}
             onClose={close}
             onSelect={(id) => setSelectedId(id)}
@@ -323,6 +339,8 @@ function DetailPanel({
   id,
   selection,
   total,
+  goalTitle,
+  coverage,
   panelRef,
   onClose,
   onSelect,
@@ -330,6 +348,8 @@ function DetailPanel({
   id: string;
   selection: Selection;
   total: number;
+  goalTitle: string;
+  coverage?: NodeCoverage;
   panelRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
   onSelect: (id: string) => void;
@@ -368,6 +388,29 @@ function DetailPanel({
       <p className="mt-3 text-[15px] leading-relaxed text-zinc-700 dark:text-zinc-300">
         {node.summary ?? <span className="italic text-zinc-500 dark:text-zinc-400">No summary yet.</span>}
       </p>
+      {coverage && (
+        <div className="mt-6">
+          <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+            Your sources <CoverageBadge state={coverage.state} className="normal-case tracking-normal" />
+          </h3>
+          {coverage.sources.length > 0 && (
+            <ul className="mt-3 flex flex-col gap-3">
+              {coverage.sources.map((src, i) => (
+                <li key={i} className="text-sm">
+                  <p className="font-medium text-zinc-900 [overflow-wrap:anywhere] dark:text-zinc-100">{src.title}</p>
+                  <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{LABEL_TEXT[src.label]}</p>
+                  <p className="mt-0.5 text-zinc-700 dark:text-zinc-300">{src.reason}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {coverage.state !== "covered" && (
+            <div className="mt-3">
+              <SearchLinks query={searchQuery(goalTitle, node.title)} />
+            </div>
+          )}
+        </div>
+      )}
       {!parent && node.children.length > 0 && (
         <div className="mt-8">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">

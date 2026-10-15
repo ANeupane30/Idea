@@ -2,8 +2,9 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { SOURCE_COLUMNS, type SourceRow } from "@/lib/sources";
+import { SOURCE_COLUMNS, type CoverageState, type NodeCoverage, type RelevanceLabel, type SourceRow } from "@/lib/sources";
 import { buildTree, type SubtopicRow } from "@/lib/topic-tree";
+import { AddNext } from "./AddNext";
 import { MapStatus } from "./MapStatus";
 import { Sources } from "./Sources";
 import { TopicMap, type Level } from "./TopicMap";
@@ -20,11 +21,62 @@ async function TopicMapSlot({
   level: Level | null;
 }) {
   const supabase = await createClient();
-  const { data: rows } = await supabase
-    .from("subtopics")
-    .select("id, parent_id, title, summary, position, user_edited")
-    .eq("goal_id", goalId);
-  return <TopicMap goalTitle={goalTitle} level={level} tree={buildTree((rows ?? []) as SubtopicRow[])} />;
+  const [{ data: rows }, { count: readySources }] = await Promise.all([
+    supabase.from("subtopics").select("id, parent_id, title, summary, position, user_edited").eq("goal_id", goalId),
+    supabase
+      .from("sources")
+      .select("id", { count: "exact", head: true })
+      .eq("goal_id", goalId)
+      .eq("status", "ready"),
+  ]);
+  const tree = buildTree((rows ?? []) as SubtopicRow[]);
+  const coverage = readySources ? await loadCoverage(goalId) : undefined;
+  return (
+    <>
+      <TopicMap goalTitle={goalTitle} level={level} tree={tree} coverage={coverage} />
+      {coverage ? (
+        <AddNext goalTitle={goalTitle} tree={tree} coverage={coverage} />
+      ) : (
+        <p className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
+          Add a link, video or PDF to see which topics it covers.
+        </p>
+      )}
+    </>
+  );
+}
+
+type CoverageRow = {
+  subtopic_id: string;
+  reason: string;
+  sources: { title: string | null; file_name: string | null; url_or_file: string; relevance_label: RelevanceLabel };
+};
+
+/** Each subtopic's state, plus the ready, on-topic sources that cover it (best first). */
+async function loadCoverage(goalId: string): Promise<Record<string, NodeCoverage>> {
+  const supabase = await createClient();
+  const [{ data: states }, { data: rows }] = await Promise.all([
+    supabase.from("subtopic_coverage").select("subtopic_id, state").eq("goal_id", goalId),
+    supabase
+      .from("source_coverage")
+      .select("subtopic_id, reason, sources!inner(title, file_name, url_or_file, relevance_label)")
+      .eq("sources.goal_id", goalId)
+      .eq("sources.status", "ready")
+      .neq("sources.relevance_label", "off_topic")
+      .gte("relevance", 0.4)
+      .order("relevance", { ascending: false }),
+  ]);
+  const coverage: Record<string, NodeCoverage> = {};
+  for (const s of (states ?? []) as { subtopic_id: string; state: CoverageState }[]) {
+    coverage[s.subtopic_id] = { state: s.state, sources: [] };
+  }
+  for (const r of (rows ?? []) as unknown as CoverageRow[]) {
+    coverage[r.subtopic_id]?.sources.push({
+      title: r.sources.title ?? r.sources.file_name ?? r.sources.url_or_file,
+      label: r.sources.relevance_label,
+      reason: r.reason,
+    });
+  }
+  return coverage;
 }
 
 async function SourcesSlot({ goalId, archived }: { goalId: string; archived: boolean }) {
