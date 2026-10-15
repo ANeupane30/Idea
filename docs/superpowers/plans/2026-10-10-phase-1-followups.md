@@ -53,3 +53,22 @@ Items the per-task reviews and the final whole-branch review found and left for 
 - **Stale test label:** the `subtopic_parent_same_goal` pgTAP test expects the `max_depth_exceeded` error, so its label no longer describes what it checks.
 - **Dead guard branches:** users can no longer write subtopics, so the `if current_user = 'authenticated'` branches in the trigger functions in `20261008000002_topic_map_rpc.sql` are dead code. Remove them in a future migration.
 - **Long-text layout test:** add an e2e layout test with a 120-character title and a 300-character summary (the worker's maximums) at mobile, 1024 and desktop widths.
+
+## From Phase 2 (ingestion)
+
+- **Before production:**
+  - Run the live Claude smoke test for the Haiku mapping and punctuation calls too (all tests use the fake LLM).
+  - Run headless rendering in a separate container with no secrets and with egress rules, ideally through an egress proxy that applies the host check to every connection. This also closes DNS rebinding, which the URL fetcher doesn't pin.
+  - A cleanup job for uploaded PDFs that no source references (closed tabs, crashes).
+  - YouTube may block transcript requests from cloud IPs; check from the deploy region.
+- **Tuning:** `shortlist_min` (0.50) and the relevance thresholds (0.70 / 0.40) need the eval set. Consider `claude-haiku-5-5` for mapping and punctuation (about 10x cheaper than Haiku 4.5); it takes effort but has no server-side fallback.
+- **Product:** removing sources (count removals against quota so add/remove can't bypass it); "Add X to the map" suggestions.
+- **Deferred minors from the final review:**
+  - An unknown page charset makes the fetch retry instead of falling back to utf-8.
+  - Chunks can fall below 500 tokens when the next sentence would pass 800.
+  - `contents.embed_model` isn't checked on a cache hit; re-embed when the model changes.
+  - An off-topic source with no shortlisted subtopic has no reason line.
+  - `PlaywrightRenderer.aborted` grows for the worker's lifetime.
+  - `addPdfSource` doesn't schema-validate `fileName` and `goalId`.
+  - The PDF child process has a time limit but no memory limit.
+  - `test_archived_goal_skips_write` is misnamed: it fails the source; it doesn't archive the goal.

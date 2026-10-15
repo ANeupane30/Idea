@@ -1,7 +1,7 @@
 # Adaptive Learning Platform — Brainstorm Decision Log
 
 **Started:** 2026-10-07
-**Status:** Phase 1 implemented on branch `phase-1` (2026-10-10). Awaiting review and merge. This is a decision log, not the final spec.
+**Status:** Phase 1 on branch `phase-1` (2026-10-10) and Phase 2 on branch `phase-2` (2026-10-15) implemented. Awaiting review and merge. This is a decision log, not the final spec.
 
 ## The idea
 
@@ -151,7 +151,8 @@ Key points:
 - [x] Implementation plan (Phase 1: foundation, goals, topic map)
 - [x] Phase 1 implemented on branch `phase-1` (2026-10-10)
 - [x] Guest demo, no forced sign-up (decision 12), implemented on `phase-1` (2026-10-15)
-- [ ] Phase 2 (ingestion pipeline) plan
+- [x] Phase 2 (ingestion pipeline) plan and implementation, on branch `phase-2` (2026-10-15)
+- [ ] Phase 3 (lessons) plan
 
 ## Spec amendments (Phase 1)
 
@@ -159,6 +160,15 @@ Key points:
 - `users.id` is `auth.users.id`; a trigger creates the `public.users` row at sign-up.
 - `subtopics.summary` is nullable: user-added subtopics may have no summary (Phase 2 matching falls back to the title).
 - `usage_events.kind` gains `topic_map`. `jobs` gains `locked_at`, `created_at`.
+
+## Spec amendments (Phase 2)
+
+- `sources` gains `file_name`, `step`, `delayed`, `relevance`, `relevance_label`, `relevance_reason` and `queued_at`.
+- New tables `contents` (one row per extracted content hash, with its title, token count, duration, page count and embedding model) and `subtopic_embeddings`.
+- `source_chunks` stores `token_count`. Coverage is the view `subtopic_coverage`.
+- Embeddings come from a local model, `BAAI/bge-small-en-v1.5` (384 dims, fastembed); no embedding API key.
+- Quotas: guests 3 sources in total; free 5 and Pro 50 a UTC day; failed sources don't count. Add and retry attempts are capped at 3x the daily limit (guests 10 in total). Length caps: free 90 min, 150 pages, 60,000 tokens; Pro 240 min, 600 pages, 250,000 tokens.
+- "Add X to the map" suggestions are deferred to a later phase (decided with the user 2026-10-15).
 
 ## Implementation decisions (Phase 1)
 
@@ -179,4 +189,4 @@ Key points:
 
 ## Next
 
-Review and merge `phase-1`, then write the Phase 2 (ingestion pipeline) plan.
+Review and merge `phase-1` and `phase-2`, then write the Phase 3 (lessons) plan.
