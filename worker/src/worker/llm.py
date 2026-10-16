@@ -185,11 +185,17 @@ class FakeLLM:
         from worker.ingest.mapping import MappingResponse, fake_mapping_response
         from worker.ingest.punctuate import PunctuationResponse, fake_punctuation_response
         from worker.lessons.diagrams import MermaidFix
+        from worker.quiz.questions import QuestionSet, fake_question_set
+        from worker.quiz.validate import VerdictSet, fake_verdicts
 
         if schema is MappingResponse:
             return LLMResult(fake_mapping_response(user), 100, 50, model)
         if schema is PunctuationResponse:
             return LLMResult(fake_punctuation_response(user), 100, 100, model)
+        if schema is QuestionSet:
+            return LLMResult(fake_question_set(user), 300, 900, model)
+        if schema is VerdictSet:
+            return LLMResult(fake_verdicts(user), 200, 60, model)
         if schema is MermaidFix:
             return LLMResult(MermaidFix(mermaid="graph TD; A-->B"), 50, 20, model)
         clarify = "[clarify]" in user and "<clarification_answer>" not in user
