@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { LABEL_TEXT, searchQuery, type NodeCoverage } from "@/lib/sources";
 import type { TreeNode } from "@/lib/topic-tree";
+import { LABEL_TEXT as MASTERY_TEXT, type MasteryLabel } from "@/lib/quiz";
 import { CoverageBadge, SearchLinks } from "./Coverage";
 
 export type Level = "beginner" | "intermediate" | "advanced";
@@ -137,6 +138,7 @@ export function TopicMap({
   level,
   tree,
   coverage,
+  mastery,
 }: {
   goalId: string;
   goalTitle: string;
@@ -144,6 +146,8 @@ export function TopicMap({
   tree: TreeNode[];
   /** Per-subtopic coverage; badges show only when given (the goal has a ready source). */
   coverage?: Record<string, NodeCoverage>;
+  /** Per-subtopic decayed mastery; a bar shows on topics the learner has practised. */
+  mastery?: Record<string, { decayed: number; label: MasteryLabel }>;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
@@ -251,6 +255,7 @@ export function TopicMap({
                         {node.title}
                       </span>
                       {coverage?.[node.id] && <CoverageBadge state={coverage[node.id].state} className="mt-1" />}
+                      {mastery?.[node.id] && <MasteryBar {...mastery[node.id]} />}
                     </span>
                     {node.children.length > 0 && (
                       <span
@@ -290,6 +295,7 @@ export function TopicMap({
                                   <CoverageBadge state={coverage[child.id].state} className="ml-1" />
                                 </>
                               )}
+                              {mastery?.[child.id] && <MasteryBar {...mastery[child.id]} />}
                             </button>
                           </li>
                         );
@@ -453,5 +459,27 @@ function DetailPanel({
         </button>
       )}
     </div>
+  );
+}
+
+const BAR_COLOR: Record<MasteryLabel, string> = {
+  strong: "bg-emerald-500 dark:bg-emerald-400",
+  developing: "bg-amber-500 dark:bg-amber-400",
+  weak: "bg-rose-500 dark:bg-rose-400",
+};
+
+/** A thin bar: width is the decayed mastery, colour its label. */
+function MasteryBar({ decayed, label }: { decayed: number; label: MasteryLabel }) {
+  return (
+    <span
+      role="img"
+      aria-label={`Mastery: ${MASTERY_TEXT[label]}`}
+      className="mt-1.5 block h-1 w-full min-w-16 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"
+    >
+      <span
+        className={`block h-full rounded-full ${BAR_COLOR[label]}`}
+        style={{ width: `${Math.max(4, Math.round(decayed * 100))}%` }}
+      />
+    </span>
   );
 }

@@ -4,6 +4,9 @@ import { mapWithArticle, openLesson } from "./helpers";
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
 // The fake question bank always has this as the correct option.
 const RIGHT = "Joins combine rows from related tables.";
+
+// Each test builds a map, writes a lesson and runs a quiz: allow more than the 30 s default.
+test.beforeEach(() => test.slow());
 const WRONG = "Joins delete rows.";
 
 /** Guest with the article ready and a Visual lesson open for "Joining tables", then the topic quiz. */

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { guestBuildsMap } from "./helpers";
+import { expectNoOverlap, guestBuildsMap } from "./helpers";
 
 // The fixture article covers SELECT, WHERE and joins, but not indexes.
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
@@ -57,20 +57,6 @@ test("what to add next", async ({ page }) => {
   );
   await expect(items.filter({ hasText: "Joining tables" })).toHaveCount(0);
 });
-
-async function expectNoOverlap(page: Page, width: number) {
-  const boxes = await page
-    .getByRole("navigation", { name: "Topic map" })
-    .locator("button[data-topic-id]")
-    .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
-  for (const [i, a] of boxes.entries()) {
-    for (const b of boxes.slice(i + 1)) {
-      const overlap = a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
-      expect(overlap, `topics overlap at ${width}px`).toBe(false);
-    }
-  }
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-}
 
 for (const [width, height] of [
   [375, 812],

@@ -68,3 +68,18 @@ export async function openLesson(page: Page, topic: string) {
   await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}\/topics\/[0-9a-f-]{36}$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { level: 1, name: topic })).toBeVisible();
 }
+
+/** Topic map nodes don't overlap, and the page doesn't scroll sideways. */
+export async function expectNoOverlap(page: Page, width: number) {
+  const boxes = await page
+    .getByRole("navigation", { name: "Topic map" })
+    .locator("button[data-topic-id]")
+    .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
+  for (const [i, a] of boxes.entries()) {
+    for (const b of boxes.slice(i + 1)) {
+      const overlap = a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+      expect(overlap, `topics overlap at ${width}px`).toBe(false);
+    }
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+}

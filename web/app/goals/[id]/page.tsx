@@ -7,6 +7,7 @@ import { buildTree, type SubtopicRow } from "@/lib/topic-tree";
 import { AddNext } from "./AddNext";
 import { MapStatus } from "./MapStatus";
 import { Sources } from "./Sources";
+import { StudyNext, type MasteryRow } from "./StudyNext";
 import { TopicMap, type Level } from "./TopicMap";
 
 const LEVELS = ["beginner", "intermediate", "advanced"] as const;
@@ -30,10 +31,16 @@ async function TopicMapSlot({
       .eq("status", "ready"),
   ]);
   const tree = buildTree((rows ?? []) as SubtopicRow[]);
-  const coverage = readySources ? await loadCoverage(goalId) : undefined;
+  const [coverage, { data: masteryRows }] = await Promise.all([
+    readySources ? loadCoverage(goalId) : Promise.resolve(undefined),
+    supabase.rpc("goal_mastery", { p_goal_id: goalId }),
+  ]);
+  const rowsByTopic = (masteryRows ?? []) as MasteryRow[];
+  const mastery = Object.fromEntries(rowsByTopic.map((r) => [r.subtopic_id, { decayed: Number(r.decayed), label: r.label }]));
   return (
     <>
-      <TopicMap goalId={goalId} goalTitle={goalTitle} level={level} tree={tree} coverage={coverage} />
+      <TopicMap goalId={goalId} goalTitle={goalTitle} level={level} tree={tree} coverage={coverage} mastery={mastery} />
+      <StudyNext goalId={goalId} tree={tree} rows={rowsByTopic} />
       {coverage ? (
         <AddNext goalTitle={goalTitle} tree={tree} coverage={coverage} />
       ) : (
