@@ -44,3 +44,27 @@ export async function guestBuildsMap(page: Page, title = "Learn SQL") {
   await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}/);
   await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 30_000 });
 }
+
+const FIXTURE_ARTICLE = "http://127.0.0.1:8765/sql-article.html";
+
+/** Guest map with the fixture article added and matched. */
+export async function mapWithArticle(page: Page) {
+  await guestBuildsMap(page);
+  await page.getByLabel("Add a link").fill(FIXTURE_ARTICLE);
+  await page.getByRole("button", { name: "Add link" }).click();
+  await expect(page.getByRole("list", { name: "Your sources" }).getByRole("listitem").first()).toContainText(
+    "Highly relevant",
+    { timeout: 30_000 },
+  );
+}
+
+export async function openLesson(page: Page, topic: string) {
+  await page
+    .getByRole("navigation", { name: "Topic map" })
+    .getByRole("button", { name: new RegExp(`^(\\d+ )?${topic}`) })
+    .click();
+  await page.getByRole("dialog").getByRole("link", { name: "Open lesson" }).click();
+  // The first visit compiles the route in dev, so allow longer than the default.
+  await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}\/topics\/[0-9a-f-]{36}$/, { timeout: 20_000 });
+  await expect(page.getByRole("heading", { level: 1, name: topic })).toBeVisible();
+}

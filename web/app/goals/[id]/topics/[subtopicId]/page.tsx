@@ -61,6 +61,7 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
       </h1>
       {topic.summary && <p className="mt-2 text-zinc-600 dark:text-zinc-400">{topic.summary}</p>}
       <LessonView
+        goalId={goal.id}
         goalTitle={goal.title}
         subtopic={{ id: topic.id, title: topic.title }}
         preferredFormat={preferred}
