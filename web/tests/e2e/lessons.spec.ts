@@ -91,7 +91,7 @@ test("stale lesson can be refreshed", async ({ page }) => {
   const lessonUrl = page.url();
 
   // A second source covering the topic makes the lesson out of date.
-  await page.getByRole("link", { name: "← Back to your map" }).click();
+  await page.getByRole("link", { name: "Back to your map", exact: true }).click();
   await page.getByLabel("Add a link").fill(`${ARTICLE}?n=2`);
   await page.getByRole("button", { name: "Add link" }).click();
   const rows = page.getByRole("list", { name: "Your sources" }).getByRole("listitem");

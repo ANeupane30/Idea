@@ -1,6 +1,8 @@
 "use client";
 
 import { useActionState } from "react";
+import { FilterChip } from "@/components/ui/chips";
+import { button } from "@/components/ui/buttons";
 import type { ActionResult } from "@/lib/validation";
 
 const FORMATS = [
@@ -33,40 +35,50 @@ export function PreferencesForm({ action, format, level }: Props) {
   return (
     <form action={formAction} className="flex flex-col gap-6">
       <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 font-medium">How do you like to learn?</legend>
+        <legend className="mb-2 text-title-m text-on-surface">How do you like to learn?</legend>
         {FORMATS.map((f) => (
-          <label key={f.value} className="flex items-start gap-2">
+          <label
+            key={f.value}
+            className="flex cursor-pointer items-start gap-3 rounded-2xl border border-outline-variant p-4 has-checked:border-2 has-checked:border-primary has-checked:bg-primary-container has-checked:p-[15px] has-focus-visible:outline-3 has-focus-visible:outline-primary"
+          >
             <input
               type="radio"
               name="preferred_format"
               value={f.value}
               defaultChecked={format === f.value}
               required
-              className="mt-1"
+              className="mt-1 accent-(--m-primary)"
             />
-            <span>
+            <span className="text-title-m text-on-surface">
               {f.label}
-              <span className="block text-sm text-zinc-600">{f.desc}</span>
+              <span className="block text-body-m text-on-surface-variant">{f.desc}</span>
             </span>
           </label>
         ))}
       </fieldset>
       <fieldset className="flex flex-col gap-2">
-        <legend className="mb-1 font-medium">What is your level?</legend>
-        {LEVELS.map((l) => (
-          <label key={l.value} className="flex items-center gap-2">
-            <input type="radio" name="level" value={l.value} defaultChecked={level === l.value} required />
-            {l.label}
-          </label>
-        ))}
+        <legend className="mb-2 text-title-m text-on-surface">What is your level?</legend>
+        <div className="flex flex-wrap gap-2">
+          {LEVELS.map((l) => (
+            <FilterChip
+              key={l.value}
+              label={l.label}
+              type="radio"
+              name="level"
+              value={l.value}
+              defaultChecked={level === l.value}
+              required
+            />
+          ))}
+        </div>
       </fieldset>
-      <div role="alert" className="min-h-5 text-sm text-red-700">
+      <div role="alert" className="min-h-5 text-body-m text-on-negative">
         {state && !state.ok ? state.error : null}
       </div>
       <button
         type="submit"
         disabled={pending || state?.ok === true}
-        className="self-start rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
+        className={button("filled", "self-start")}
       >
         Save
       </button>

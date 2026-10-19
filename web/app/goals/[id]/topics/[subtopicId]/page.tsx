@@ -1,7 +1,7 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
+import { TopBar } from "@/components/top-bar";
 import { createClient } from "@/lib/supabase/server";
 import { FORMATS, type Format, type Lesson } from "@/lib/lessons";
 import { LessonView } from "./LessonView";
@@ -46,20 +46,10 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
   const preferred = FORMATS.find((f) => f === prefs?.preferred_format) ?? "text";
 
   return (
-    <main className="mx-auto w-full max-w-3xl p-4 sm:p-6">
-      <Link
-        href={`/goals/${goal.id}`}
-        className="text-sm font-medium text-zinc-600 underline-offset-4 hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
-      >
-        ← Back to your map
-      </Link>
-      <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-        {goal.title}
-      </p>
-      <h1 className="mt-1 text-2xl font-semibold text-zinc-900 [overflow-wrap:anywhere] sm:text-3xl dark:text-zinc-50">
-        {topic.title}
-      </h1>
-      {topic.summary && <p className="mt-2 text-zinc-600 dark:text-zinc-400">{topic.summary}</p>}
+    <>
+    <TopBar back={{ href: `/goals/${goal.id}`, label: "Back to your map" }} title={topic.title} />
+    <main className="mx-auto w-full max-w-3xl px-4 pb-10 sm:px-6">
+      {topic.summary && <p className="mt-2 text-on-surface-variant">{topic.summary}</p>}
       <LessonView
         goalId={goal.id}
         goalTitle={goal.title}
@@ -70,6 +60,7 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
         hasSources={(covering ?? []).length > 0}
       />
     </main>
+    </>
   );
 }
 

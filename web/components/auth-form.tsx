@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
+import { button, field } from "@/components/ui/buttons";
 import type { ActionResult } from "@/lib/validation";
 
 type Props = {
@@ -11,6 +12,8 @@ type Props = {
   notice?: React.ReactNode;
 };
 
+const LABEL = "flex flex-col gap-1.5 text-label-l text-on-surface-variant";
+
 export function AuthForm({ mode, action, notice }: Props) {
   const isSignUp = mode === "sign-up";
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
@@ -19,58 +22,48 @@ export function AuthForm({ mode, action, notice }: Props) {
   );
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-6">
-      <h1 className="text-2xl font-semibold">{isSignUp ? "Create your account" : "Sign in"}</h1>
-      {notice}
-      <form action={formAction} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm">
-          Email
-          <input
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            className="rounded border border-zinc-400 px-3 py-2 text-base"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Password
-          <input
-            name="password"
-            type="password"
-            autoComplete={isSignUp ? "new-password" : "current-password"}
-            required
-            className="rounded border border-zinc-400 px-3 py-2 text-base"
-          />
-        </label>
-        <div role="alert" className="min-h-5 text-sm text-red-700">
-          {state && !state.ok ? state.error : null}
-        </div>
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
-        >
-          {isSignUp ? "Sign up" : "Sign in"}
-        </button>
-      </form>
-      <p className="text-sm">
-        {isSignUp ? (
-          <>
-            Already have an account?{" "}
-            <Link href="/sign-in" className="underline">
-              Sign in
-            </Link>
-          </>
-        ) : (
-          <>
-            New here?{" "}
-            <Link href="/sign-up" className="underline">
-              Create an account
-            </Link>
-          </>
-        )}
-      </p>
-    </main>
+      <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-6 px-4 py-10">
+        <h1 className="text-headline-m text-on-surface">{isSignUp ? "Create your account" : "Sign in"}</h1>
+        {notice}
+        <form action={formAction} className="flex flex-col gap-4">
+          <label className={LABEL}>
+            Email
+            <input name="email" type="email" autoComplete="email" required className={field()} />
+          </label>
+          <label className={LABEL}>
+            Password
+            <input
+              name="password"
+              type="password"
+              autoComplete={isSignUp ? "new-password" : "current-password"}
+              required
+              className={field()}
+            />
+          </label>
+          <div role="alert" className="min-h-5 text-body-m text-on-negative">
+            {state && !state.ok ? state.error : null}
+          </div>
+          <button type="submit" disabled={pending} className={button("filled")}>
+            {isSignUp ? "Sign up" : "Sign in"}
+          </button>
+        </form>
+        <p className="text-body-m text-on-surface-variant">
+          {isSignUp ? (
+            <>
+              Already have an account?{" "}
+              <Link href="/sign-in" className="text-primary underline underline-offset-2">
+                Sign in
+              </Link>
+            </>
+          ) : (
+            <>
+              New here?{" "}
+              <Link href="/sign-up" className="text-primary underline underline-offset-2">
+                Create an account
+              </Link>
+            </>
+          )}
+        </p>
+      </main>
   );
 }

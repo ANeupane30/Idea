@@ -66,7 +66,8 @@ export function InfoChip({ icon, children, className = "" }: { icon?: IconName; 
 }
 
 /**
- * A filter chip over a visually hidden radio or checkbox; shows a check when selected.
+ * A filter chip: an invisible radio or checkbox laid over the chip (so it takes the clicks itself);
+ * shows a check when selected.
  * Pass the input's props; the chip's accessible name is `label`.
  */
 export function FilterChip({
@@ -75,7 +76,7 @@ export function FilterChip({
 }: { label: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "className">) {
   return (
     <label className="group relative inline-flex min-h-12 cursor-pointer items-center">
-      <input {...input} className="peer sr-only" />
+      <input {...input} className="peer absolute inset-0 z-10 m-0 cursor-pointer appearance-none opacity-0" />
       <span className="inline-flex h-9 items-center gap-2 rounded-full border border-outline px-4 text-label-l text-on-surface-variant transition-colors group-hover:bg-on-surface/8 peer-checked:border-transparent peer-checked:bg-secondary-container peer-checked:pl-3 peer-checked:text-on-secondary-container peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary [&>svg]:hidden peer-checked:[&>svg]:block">
         <Icon name="check" size={18} />
         {label}

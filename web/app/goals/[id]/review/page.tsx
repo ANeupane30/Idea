@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
+import { AppShell } from "@/components/app-shell";
 import { QuizRunner } from "@/components/quiz-runner";
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,6 +14,7 @@ async function Review({ params }: { params: Promise<{ id: string }> }) {
   const { data: goal } = await supabase.from("goals").select("id, title").eq("id", id).maybeSingle();
   if (!goal) notFound();
   return (
+    <AppShell goalId={goal.id}>
     <main className="mx-auto w-full max-w-2xl p-4 sm:p-6">
       <Link
         href={`/goals/${goal.id}`}
@@ -24,6 +26,7 @@ async function Review({ params }: { params: Promise<{ id: string }> }) {
       <h1 className="mt-1 text-2xl font-semibold text-zinc-900 [overflow-wrap:anywhere] dark:text-zinc-50">{goal.title}</h1>
       <QuizRunner goalId={goal.id} subtopicId={null} mode="review" />
     </main>
+    </AppShell>
   );
 }
 

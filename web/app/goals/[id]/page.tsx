@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
+import { AppShell } from "@/components/app-shell";
 import { createClient } from "@/lib/supabase/server";
 import { SOURCE_COLUMNS, type CoverageState, type NodeCoverage, type RelevanceLabel, type SourceRow } from "@/lib/sources";
 import { addNextItems } from "@/lib/sources";
@@ -125,6 +126,7 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
     .maybeSingle();
   if (!data) notFound();
   return (
+    <AppShell goalId={data.id}>
     <main className="mx-auto w-full max-w-[1800px] p-4 sm:p-6">
       <h1 className="text-2xl font-semibold">{data.title}</h1>
       <MapStatus goal={data}>
@@ -139,6 +141,7 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
         )}
       </MapStatus>
     </main>
+    </AppShell>
   );
 }
 

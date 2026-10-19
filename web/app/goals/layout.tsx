@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { redirect } from "next/navigation";
-import { SiteHeader, SiteHeaderFallback } from "@/components/site-header";
 import { createClient } from "@/lib/supabase/server";
 
 async function Gate({ children }: { children: React.ReactNode }) {
@@ -21,13 +20,8 @@ async function Gate({ children }: { children: React.ReactNode }) {
 
 export default function GoalsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      <Suspense fallback={<SiteHeaderFallback />}>
-        <SiteHeader />
-      </Suspense>
-      <Suspense fallback={<p className="p-6">Loading...</p>}>
-        <Gate>{children}</Gate>
-      </Suspense>
-    </>
+    <Suspense fallback={<p className="p-6 text-on-surface-variant">Loading...</p>}>
+      <Gate>{children}</Gate>
+    </Suspense>
   );
 }
