@@ -16,6 +16,7 @@ import numpy as np
 import psycopg
 from psycopg import errors as pg_errors
 
+from worker.config import DEFAULT_USER_AGENT
 from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
@@ -76,6 +77,7 @@ class IngestHandler:
         transcripts: TranscriptSource,
         allow_private: bool,
         transport=None,  # httpx transport for web fetches; tests only
+        user_agent: str = DEFAULT_USER_AGENT,
     ):
         self._llm = llm
         self._embedder = embedder
@@ -84,6 +86,7 @@ class IngestHandler:
         self._transcripts = transcripts
         self._allow_private = allow_private
         self._transport = transport
+        self._user_agent = user_agent
 
     # ------------------------------------------------------------ helpers
 
@@ -170,7 +173,11 @@ class IngestHandler:
     def _extract(self, src, kind: str, key: str, pdf_bytes: bytes | None, limits: Limits) -> Extracted:
         if kind == "web":
             return extract_web(
-                src["url_or_file"], allow_private=self._allow_private, renderer=self._renderer, transport=self._transport
+                src["url_or_file"],
+                allow_private=self._allow_private,
+                renderer=self._renderer,
+                transport=self._transport,
+                user_agent=self._user_agent,
             )
         if kind == "youtube":
             extracted = extract_youtube(key, self._transcripts)

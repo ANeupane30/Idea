@@ -107,3 +107,7 @@ Items the per-task reviews and the final whole-branch review found and left for 
   - The quiz runner ignores a failed flag call, shows generic copy for `not_current_question` / `not_found`, and doesn't catch thrown action errors.
   - The mastery bar is `role="img"` inside a button; sr-only text would be more robust.
   - The generation-limit trigger scans `jobs` by `payload->>'user_id'` without an index.
+
+## After Phase 4
+
+- **Before production:** set `FETCH_USER_AGENT` in the worker env to name the real site, e.g. `LearningPlatform/1.0 (+https://your-site.example)`. Sites such as Wikipedia reject requests without a contact URL; the default points at `http://localhost:3000`.

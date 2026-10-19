@@ -92,6 +92,7 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         renderer=PlaywrightRenderer(settings.fetch_allow_private_hosts),
         transcripts=YouTubeTranscriptSource(),
         allow_private=settings.fetch_allow_private_hosts,
+        user_agent=settings.fetch_user_agent,
     )
     quiz_bank = QuizBankHandler(llm, make_embedder(settings))
     return {"topic_map": TopicMapHandler(llm), "ingest_source": ingest, "quiz_bank": quiz_bank}

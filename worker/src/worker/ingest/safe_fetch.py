@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from worker.config import DEFAULT_USER_AGENT
 from worker.ingest.messages import BLOCKED, IS_PDF, NOT_HTML, TOO_LARGE, UNREACHABLE
 from worker.jobs import PermanentJobError
 
@@ -19,7 +20,6 @@ MAX_REDIRECTS = 5
 MAX_BYTES = 5 * 1024 * 1024
 TIMEOUT_S = 15.0
 HTML_TYPES = ("text/html", "application/xhtml+xml")
-USER_AGENT = "Mozilla/5.0 (compatible; LearningPlatformBot/1.0)"
 
 
 @dataclass
@@ -64,13 +64,19 @@ def _read_capped(response: httpx.Response) -> bytes:
     return bytes(body)
 
 
-def fetch_html(url: str, *, allow_private: bool, transport: httpx.BaseTransport | None = None) -> FetchedPage:
+def fetch_html(
+    url: str,
+    *,
+    allow_private: bool,
+    transport: httpx.BaseTransport | None = None,
+    user_agent: str = DEFAULT_USER_AGENT,
+) -> FetchedPage:
     """GET an HTML page. 4xx, DNS and connect failures are permanent; 5xx and read timeouts retry."""
     with httpx.Client(
         transport=transport,
         follow_redirects=False,
         timeout=TIMEOUT_S,
-        headers={"user-agent": USER_AGENT, "accept": "text/html,application/xhtml+xml"},
+        headers={"user-agent": user_agent, "accept": "text/html,application/xhtml+xml"},
     ) as client:
         for _ in range(MAX_REDIRECTS + 1):
             check_host_allowed(url, allow_private)
