@@ -146,8 +146,19 @@ class QuizBankHandler:
 
     def on_permanent_failure(self, conn: psycopg.Connection, job: Job, message: str) -> None:
         code = message if message in (NO_SOURCES, FAILED) else FAILED
+        subtopic_id = UUID(str(job.payload["subtopic_id"]))
         with conn.transaction():
+            if job.payload.get("difficulty"):
+                # A failed top-up leaves a working bank alone (and top-ups can be queued again);
+                # only a bank with nothing to serve is marked failed.
+                has_questions = conn.execute(
+                    "select 1 from quiz_questions where subtopic_id = %s and status = 'active' limit 1",
+                    (subtopic_id,),
+                ).fetchone()
+                if has_questions:
+                    log.warning("quiz top-up for %s failed (%s); bank stays ready", subtopic_id, code)
+                    return
             conn.execute(
                 "update quiz_banks set status = 'failed', error = %s, updated_at = now() where subtopic_id = %s",
-                (code, UUID(str(job.payload["subtopic_id"]))),
+                (code, subtopic_id),
             )

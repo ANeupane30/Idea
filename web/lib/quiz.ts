@@ -38,7 +38,8 @@ export type NextQuestion =
   | QuizQuestion
   | { done: true }
   | { preparing: true }
-  | { failed: true }
+  | { failed: true; error: string; subtopic_id: string }
+  | { limit: "quiz_limit" | "guest_quiz_limit" }
   | { exhausted: true };
 
 export type AnswerResult = {

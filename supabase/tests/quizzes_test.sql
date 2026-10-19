@@ -217,7 +217,7 @@ reset role;
 update public.quiz_banks set status = 'failed', error = 'failed' where subtopic_id = public._v('f_sub');
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000009f0"}';
-select is(public.next_question(public._v('f_quiz')), '{"failed": true}'::jsonb, 'failed_bank: next_question reports it');
+select is(public.next_question(public._v('f_quiz')) -> 'failed', 'true'::jsonb, 'failed_bank: next_question reports it');
 select lives_ok($$select public.retry_quiz_bank(public._v('f_sub'))$$, 'failed_bank: retry is allowed');
 select is(public.next_question(public._v('f_quiz')), '{"preparing": true}'::jsonb, 'failed_bank: preparing again');
 reset role;

@@ -122,3 +122,22 @@ def test_main_registers_quiz_bank():
 
     handlers = main_mod.build_handlers(Settings(llm_provider="fake", embedder="fake", supabase_secret_key="key"))
     assert "quiz_bank" in handlers
+
+
+def test_failed_top_up_keeps_a_working_bank_ready(db, make_user, make_ready_goal, make_source):
+    from worker.llm import LLMRefusal
+
+    class Refuses(SpyLLM):
+        def parse(self, *, model, system, user, schema, max_tokens=16000):
+            if schema is QuestionSet:
+                raise LLMRefusal("refused", 10, 0, model)
+            return super().parse(model=model, system=system, user=user, schema=schema, max_tokens=max_tokens)
+
+    uid, _, tid = ready_topic(db, make_user, make_ready_goal, make_source)
+    handler().run(db, job(queue(db, uid, tid), uid, tid))
+    # A top-up that fails permanently (here: the model refuses)...
+    queue(db, uid, tid, 2)
+    jobs.run_once(db, {"quiz_bank": handler(Refuses())})
+    # ...leaves the 18 working questions in a ready bank, so top-ups can be queued again.
+    assert bank(db, tid)["status"] == "ready"
+    assert len(questions(db, tid)) == 18

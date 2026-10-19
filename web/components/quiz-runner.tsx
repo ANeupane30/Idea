@@ -23,7 +23,7 @@ import {
 type State =
   | { kind: "loading" }
   | { kind: "preparing" }
-  | { kind: "error"; code: string }
+  | { kind: "error"; code: string; bankTopic?: string }
   | { kind: "question"; q: QuizQuestion; chosen: number | null; result: AnswerResult | null; flagged: boolean }
   | { kind: "results"; summary: QuizSummary };
 
@@ -50,21 +50,31 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
       return setState(summary.ok ? { kind: "results", summary: summary.data } : { kind: "error", code: summary.code });
     }
     if ("preparing" in next) return setState({ kind: "preparing" });
-    if ("failed" in next) return setState({ kind: "error", code: "failed" });
+    if ("failed" in next) {
+      // A bank that failed for lack of sources won't succeed on retry; otherwise retry that topic's bank.
+      return setState(
+        next.error === "no_sources"
+          ? { kind: "error", code: "no_sources" }
+          : { kind: "error", code: "failed", bankTopic: next.subtopic_id },
+      );
+    }
+    if ("limit" in next) return setState({ kind: "error", code: next.limit });
     if ("exhausted" in next) return setState({ kind: "error", code: "exhausted" });
     setState({ kind: "question", q: next, chosen: null, result: null, flagged: false });
   }, []);
 
+  const start = useCallback(async () => {
+    const res = await startQuiz(goalId, subtopicId);
+    if (!res.ok) return setState({ kind: "error", code: res.code });
+    quizId.current = res.data.quiz_id;
+    await load();
+  }, [goalId, subtopicId, load]);
+
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    (async () => {
-      const res = await startQuiz(goalId, subtopicId);
-      if (!res.ok) return setState({ kind: "error", code: res.code });
-      quizId.current = res.data.quiz_id;
-      await load();
-    })();
-  }, [goalId, subtopicId, load]);
+    void start();
+  }, [start]);
 
   // While the bank is being written, ask again every few seconds.
   useEffect(() => {
@@ -91,8 +101,15 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
   }
 
   async function retry() {
-    if (state.kind === "error" && state.code === "failed" && subtopicId) {
-      const res = await retryQuizBank(subtopicId);
+    if (state.kind !== "error") return;
+    // The quiz never started (e.g. a transient error): start it again.
+    if (!quizId.current) {
+      setState({ kind: "loading" });
+      return void start();
+    }
+    if (state.code === "failed" && state.bankTopic) {
+      const res = await retryQuizBank(state.bankTopic);
+      // "not_failed" (another tab already retried) maps to "failed": carry on and poll.
       if (!res.ok && res.code !== "failed") return setState({ kind: "error", code: res.code });
     }
     setState({ kind: "loading" });

@@ -3,6 +3,9 @@ import { mapWithArticle, openLesson } from "./helpers";
 
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
 
+// Each test builds a map and streams lessons (some also ingest a second source): allow 90 s.
+test.beforeEach(() => test.slow());
+
 const lesson = (page: Page) => page.getByLabel("Lesson", { exact: true });
 
 async function chooseFormat(page: Page, label: string) {
