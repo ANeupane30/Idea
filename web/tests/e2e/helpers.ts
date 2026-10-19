@@ -45,20 +45,46 @@ export async function guestBuildsMap(page: Page, title = "Learn SQL") {
   await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 30_000 });
 }
 
-const FIXTURE_ARTICLE = "http://127.0.0.1:8765/sql-article.html";
+export const FIXTURE_ARTICLE = "http://127.0.0.1:8765/sql-article.html";
+
+export const addSourceDialog = (page: Page) => page.getByRole("dialog", { name: "Add a source" });
+
+/** Opens the Add source dialog with the floating button. */
+export async function openAddSource(page: Page) {
+  await page.getByTestId("add-source-fab").click();
+  await expect(addSourceDialog(page)).toBeVisible();
+}
+
+/**
+ * Adds a link through the dialog and closes it. With `wait: "ready"` (default) it waits until the
+ * source is matched; with "added" only until it is listed (failures, limits and so on).
+ */
+export async function addLink(page: Page, url: string, { wait = "ready" }: { wait?: "ready" | "added" } = {}) {
+  await openAddSource(page);
+  const dialog = addSourceDialog(page);
+  const field = dialog.getByLabel("Paste a link to a web page or YouTube video");
+  await field.fill(url);
+  await dialog.getByRole("button", { name: "Add", exact: true }).click();
+  if (wait === "ready") {
+    // The relevance chip shows once the source is matched ("Ready" is also the stepper's last step).
+    await expect(dialog.getByRole("list", { name: "Adding to your map" })).toContainText(
+      /Highly relevant|Partly relevant|Off-topic/,
+      { timeout: 30_000 },
+    );
+  } else {
+    await expect(field).toHaveValue("");
+  }
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(dialog).toBeHidden();
+}
 
 /** Guest map with the fixture article added and matched. */
 export async function mapWithArticle(page: Page) {
   await guestBuildsMap(page);
-  await showSources(page);
-  await page.getByLabel("Add a link").fill(FIXTURE_ARTICLE);
-  await page.getByRole("button", { name: "Add link" }).click();
+  await addLink(page, FIXTURE_ARTICLE);
   await expect(page.getByRole("list", { name: "Your sources" }).getByRole("listitem").first()).toContainText(
     "Highly relevant",
-    { timeout: 30_000 },
   );
-  // On narrow screens the Sources drawer covers the map: close it.
-  await page.keyboard.press("Escape");
 }
 
 export async function openLesson(page: Page, topic: string) {
@@ -70,6 +96,16 @@ export async function openLesson(page: Page, topic: string) {
   // The first visit compiles the route in dev, so allow longer than the default.
   await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}\/topics\/[0-9a-f-]{36}$/, { timeout: 20_000 });
   await expect(page.getByRole("heading", { level: 1, name: topic })).toBeVisible();
+}
+
+/** Opens a topic's lesson by URL (gap topics have no "Open lesson" link). */
+export async function openLessonByUrl(page: Page, topic: string) {
+  const id = await page
+    .getByRole("navigation", { name: "Topic map" })
+    .getByRole("button", { name: new RegExp(`^(\\d+ )?${topic}`) })
+    .getAttribute("data-topic-id");
+  await page.goto(`${page.url().replace(/\/$/, "")}/topics/${id}`);
+  await expect(page.getByRole("heading", { level: 1, name: topic })).toBeVisible({ timeout: 20_000 });
 }
 
 /** Topic map nodes don't overlap, and the page doesn't scroll sideways. */
@@ -85,11 +121,4 @@ export async function expectNoOverlap(page: Page, width: number) {
     }
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-}
-
-/** On narrow screens the Sources panel starts closed: open it if the link field isn't showing. */
-export async function showSources(page: Page) {
-  const field = page.getByLabel("Add a link");
-  if (!(await field.isVisible())) await page.getByRole("button", { name: "Sources panel", exact: true }).click();
-  await expect(field).toBeVisible();
 }

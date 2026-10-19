@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mapWithArticle, openLesson } from "./helpers";
+import { mapWithArticle, openLesson, openLessonByUrl } from "./helpers";
 
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
 // The fake question bank always has this as the correct option.
@@ -67,7 +67,7 @@ test("double click answers once", async ({ page }) => {
 
 test("topic without sources", async ({ page }) => {
   await mapWithArticle(page);
-  await openLesson(page, "Indexes and query performance");
+  await openLessonByUrl(page, "Indexes and query performance");
   await page.goto(`${page.url()}/quiz`);
   await expect(page.getByText("Add a source that covers this topic to get questions.")).toBeVisible();
 });

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mapWithArticle, openLesson } from "./helpers";
+import { addLink, mapWithArticle, openLesson, openLessonByUrl } from "./helpers";
 
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
 
@@ -65,9 +65,10 @@ test("unsafe markdown is inert", async ({ page }) => {
 
 test("topic without sources", async ({ page }) => {
   await mapWithArticle(page);
-  await openLesson(page, "Indexes and query performance");
+  // A gap topic's card offers "Add source" instead of a lesson link.
+  await openLessonByUrl(page, "Indexes and query performance");
   await expect(page.getByText("None of your sources cover this topic yet. Add one to get a lesson.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Search the web" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Search the web for / })).toBeVisible();
 });
 
 test("another user's topic is 404", async ({ page, browser }) => {
@@ -92,8 +93,7 @@ test("stale lesson can be refreshed", async ({ page }) => {
 
   // A second source covering the topic makes the lesson out of date.
   await page.getByRole("link", { name: "Back to your map", exact: true }).click();
-  await page.getByLabel("Add a link").fill(`${ARTICLE}?n=2`);
-  await page.getByRole("button", { name: "Add link" }).click();
+  await addLink(page, `${ARTICLE}?n=2`);
   const rows = page.getByRole("list", { name: "Your sources" }).getByRole("listitem");
   // Both rows ready means the new source has been matched (and the lesson marked stale).
   await expect(rows).toHaveCount(2);
