@@ -12,7 +12,7 @@ async function quizJoins(page: Page, rightOrWrong: boolean[]) {
   await mapWithArticle(page);
   await openLesson(page, "Joining tables");
   await page.getByRole("radio", { name: /^Visual/ }).check();
-  await page.getByRole("button", { name: "Show my lesson" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByLabel("Lesson", { exact: true }).locator("section")).toHaveCount(2, { timeout: 30_000 });
   await page.getByRole("link", { name: "Quiz me on this" }).click();
   await expect(page.getByText("Question 1 of 5")).toBeVisible({ timeout: 30_000 });
@@ -21,10 +21,10 @@ async function quizJoins(page: Page, rightOrWrong: boolean[]) {
     await expect(page.getByText(`Question ${i + 1} of 5`)).toBeVisible();
     await page.getByRole("radio", { name: right ? RIGHT : WRONG, exact: true }).check();
     await page.getByRole("button", { name: "Check answer" }).click();
-    await page.getByRole("button", { name: i < 4 ? "Next question" : "See results" }).click();
+    await page.getByRole("button", { name: i < 4 ? "Next" : "See results" }).click();
   }
-  await expect(page.getByRole("heading", { name: "Your results" })).toBeVisible();
-  await page.getByRole("link", { name: "← Back to your map" }).click();
+  await expect(page.getByRole("heading", { name: /^\d+ of 5$/ })).toBeVisible();
+  await page.getByRole("link", { name: "Back to map", exact: true }).click();
   await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 30_000 });
 }
 
@@ -50,10 +50,10 @@ test("review quiz", async ({ page }) => {
     await expect(page.getByText(`Question ${n} of 10`)).toBeVisible();
     await page.getByRole("radio", { name: RIGHT, exact: true }).check();
     await page.getByRole("button", { name: "Check answer" }).click();
-    await page.getByRole("button", { name: n < 10 ? "Next question" : "See results" }).click();
+    await page.getByRole("button", { name: n < 10 ? "Next" : "See results" }).click();
   }
-  await expect(page.getByRole("heading", { name: "Your results" })).toBeVisible();
-  await expect(page.getByRole("listitem").filter({ hasText: "Joining tables" }).first()).toContainText("10 of 10");
+  await expect(page.getByRole("heading", { name: "10 of 10" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "This quiz" })).toContainText("Joining tables: 10 of 10");
 });
 
 test("your topics lists every topic", async ({ page }) => {

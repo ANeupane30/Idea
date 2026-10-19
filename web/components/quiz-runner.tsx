@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FormError } from "@/components/form-error";
+import { button } from "@/components/ui/buttons";
+import { Icon, type IconName } from "@/components/ui/icon";
 import {
   answerQuestion,
   finishQuiz,
@@ -27,11 +30,22 @@ type State =
   | { kind: "question"; q: QuizQuestion; chosen: number | null; result: AnswerResult | null; flagged: boolean }
   | { kind: "results"; summary: QuizSummary };
 
-type Props = { goalId: string; subtopicId: string | null; mode: "subtopic" | "review" };
+type Props = {
+  goalId: string;
+  subtopicId: string | null;
+  mode: "subtopic" | "review";
+  /** The quiz name, e.g. "Joining tables quiz". */
+  title: string;
+  /** Server-rendered study-next and topic mastery, shown with the results (refreshed on finish). */
+  overview: React.ReactNode;
+};
+
+const LETTERS = ["A", "B", "C", "D", "E", "F"];
 
 const POLL_MS = 2000;
 
-export function QuizRunner({ goalId, subtopicId, mode }: Props) {
+export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props) {
+  const router = useRouter();
   const groupId = useId();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [busy, setBusy] = useState(false);
@@ -47,7 +61,10 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
     const next = res.data;
     if ("done" in next) {
       const summary = await finishQuiz(id);
-      return setState(summary.ok ? { kind: "results", summary: summary.data } : { kind: "error", code: summary.code });
+      if (!summary.ok) return setState({ kind: "error", code: summary.code });
+      setState({ kind: "results", summary: summary.data });
+      // Re-render the server overview with the new mastery; this component's state is kept.
+      return router.refresh();
     }
     if ("preparing" in next) return setState({ kind: "preparing" });
     if ("failed" in next) {
@@ -61,7 +78,7 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
     if ("limit" in next) return setState({ kind: "error", code: next.limit });
     if ("exhausted" in next) return setState({ kind: "error", code: "exhausted" });
     setState({ kind: "question", q: next, chosen: null, result: null, flagged: false });
-  }, []);
+  }, [router]);
 
   const start = useCallback(async () => {
     const res = await startQuiz(goalId, subtopicId);
@@ -116,15 +133,10 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
     await load();
   }
 
-  const box = "mt-6 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6 dark:border-zinc-800 dark:bg-zinc-900";
-  const primary =
-    "rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-500 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-zinc-950";
-  const secondary =
-    "rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800";
-
   if (state.kind === "loading" || state.kind === "preparing") {
     return (
-      <p role="status" className="mt-6 text-zinc-600 dark:text-zinc-400">
+      <p role="status" className="mt-8 flex items-center gap-2 text-body-m text-on-surface-variant">
+        <Icon name="progress_activity" size={18} className="text-primary motion-safe:animate-spin" />
         {state.kind === "preparing" ? "Preparing your questions…" : "Loading…"}
       </p>
     );
@@ -133,10 +145,10 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
   if (state.kind === "error") {
     const retryable = state.code === "failed" || state.code === "exhausted";
     return (
-      <div className={`${box} flex flex-col items-start gap-3`}>
+      <div className="mt-8 flex flex-col items-start gap-3 rounded-2xl bg-surface-container-high p-5">
         <FormError error={QUIZ_ERROR_TEXT[state.code] ?? QUIZ_ERROR_TEXT.failed} />
         {retryable && (
-          <button type="button" className={secondary} onClick={() => void retry()}>
+          <button type="button" className={button("outlined")} onClick={() => void retry()}>
             Try again
           </button>
         )}
@@ -145,34 +157,51 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
   }
 
   if (state.kind === "results") {
-    return <Results goalId={goalId} summary={state.summary} />;
+    return <Results goalId={goalId} mode={mode} title={title} summary={state.summary} overview={overview} />;
   }
 
   const { q, chosen, result } = state;
   const last = q.number >= q.total;
+  const right = result ? LETTERS[result.correct_index] : "";
   return (
-    <div className={box}>
-      <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+    <div className="mt-6">
+      <p className="text-label-l text-on-surface-variant">
         Question {q.number} of {q.total}
-        {mode === "review" && <span className="ml-2 normal-case tracking-normal text-zinc-500">· {q.subtopic_title}</span>}
+        {mode === "review" && <span className="font-normal"> · {q.subtopic_title}</span>}
       </p>
-      <h2 id={groupId} className="mt-2 text-lg font-semibold text-zinc-900 [overflow-wrap:anywhere] dark:text-zinc-50">
+      <div
+        role="progressbar"
+        aria-label="Quiz progress"
+        aria-valuemin={0}
+        aria-valuenow={q.number}
+        aria-valuemax={q.total}
+        className="mt-2 h-1 overflow-hidden rounded-full bg-outline-variant"
+      >
+        <div className="h-full rounded-full bg-primary" style={{ width: `${(q.number / q.total) * 100}%` }} />
+      </div>
+      <h2 id={groupId} className="mt-6 text-headline-s text-on-surface [overflow-wrap:anywhere]">
         {q.stem}
       </h2>
-      <div role="radiogroup" aria-labelledby={groupId} className="mt-4 flex flex-col gap-2">
+      <div role="radiogroup" aria-labelledby={groupId} className="mt-6 flex flex-col gap-3">
         {q.options.map((option, i) => {
-          const isRight = result && i === result.correct_index;
-          const isWrongPick = result && i === chosen && !result.correct;
+          const isRight = !!result && i === result.correct_index;
+          const isWrongPick = !!result && i === chosen && !result.correct;
+          const tone = isRight
+            ? "border-2 border-on-positive bg-positive text-on-positive"
+            : isWrongPick
+              ? "border-2 border-on-negative bg-negative text-on-negative"
+              : result
+                ? "border border-outline-variant text-on-surface-variant"
+                : "border border-outline-variant text-on-surface hover:bg-on-surface/4 has-checked:border-2 has-checked:border-primary has-checked:bg-primary-container has-checked:text-on-primary-container";
+          const avatar = isRight
+            ? "bg-on-positive text-positive"
+            : isWrongPick
+              ? "bg-on-negative text-negative"
+              : "bg-surface-container-highest text-on-surface-variant group-has-checked:bg-primary group-has-checked:text-on-primary";
           return (
             <label
               key={i}
-              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-[15px] ${
-                isRight
-                  ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-400/10"
-                  : isWrongPick
-                    ? "border-rose-500 bg-rose-50 dark:bg-rose-400/10"
-                    : "border-zinc-200 has-checked:border-indigo-500 has-checked:bg-indigo-50 dark:border-zinc-800 dark:has-checked:bg-indigo-400/10"
-              }`}
+              className={`group relative flex min-h-14 items-center gap-4 rounded-2xl px-4 py-3 text-body-l ${result ? "" : "cursor-pointer"} has-focus-visible:outline-3 has-focus-visible:outline-offset-2 has-focus-visible:outline-primary ${tone}`}
             >
               <input
                 type="radio"
@@ -180,117 +209,216 @@ export function QuizRunner({ goalId, subtopicId, mode }: Props) {
                 checked={chosen === i}
                 disabled={!!result}
                 onChange={() => setState({ ...state, chosen: i })}
-                className="mt-1 accent-indigo-600"
+                aria-label={option}
+                className="peer absolute inset-0 z-10 m-0 cursor-pointer appearance-none opacity-0 disabled:cursor-default"
               />
-              <span className="text-zinc-900 [overflow-wrap:anywhere] dark:text-zinc-100">{option}</span>
+              <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-full text-label-l ${avatar}`}>
+                {LETTERS[i]}
+              </span>
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{option}</span>
+              {isWrongPick && (
+                <span className="flex shrink-0 items-center gap-1 text-label-m">
+                  <Icon name="close" size={18} />
+                  Not quite · your answer
+                </span>
+              )}
+              {isRight && (
+                <span className="flex shrink-0 items-center gap-1 text-label-m">
+                  <Icon name="check" size={18} />
+                  Correct answer
+                </span>
+              )}
             </label>
           );
         })}
       </div>
 
-      {!result ? (
-        <button type="button" className={`${primary} mt-5`} disabled={chosen === null || busy} onClick={() => void check()}>
-          Check answer
-        </button>
-      ) : (
-        <div className="mt-5 flex flex-col gap-3">
-          <p className={`font-semibold ${result.correct ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300"}`}>
-            {result.correct ? "Correct!" : `Not quite. The answer is: ${q.options[result.correct_index]}`}
+      {result && (
+        <>
+          <p role="status" className="sr-only">
+            {result.correct
+              ? "Correct!"
+              : `You chose ${LETTERS[chosen ?? 0]}. Not quite. The correct answer is ${right}.`}
           </p>
-          <p className="text-zinc-700 dark:text-zinc-300">{result.explanation}</p>
-          <SourceLine citations={result.citations} />
-          <div className="flex flex-wrap items-center gap-3">
-            <button type="button" className={primary} onClick={() => void load()}>
-              {last ? "See results" : "Next question"}
-            </button>
-            {state.flagged ? (
-              <span role="status" className="text-sm text-zinc-600 dark:text-zinc-400">
-                Thanks. This question won&apos;t be shown to you again.
-              </span>
-            ) : (
-              <button type="button" className={secondary} onClick={() => void flag()}>
-                Flag this question
-              </button>
-            )}
+          {result.correct && (
+            <p aria-hidden className="mt-4 flex items-center gap-1.5 text-title-m text-on-positive">
+              <Icon name="check_circle" filled />
+              Correct!
+            </p>
+          )}
+          <div className="mt-6 rounded-2xl bg-surface-container-high p-5">
+            <h3 className="flex items-center gap-2 text-title-m text-on-surface">
+              <Icon name="lightbulb" />
+              Why {right} is right
+            </h3>
+            <p className="mt-2 text-body-l text-on-surface">{result.explanation}</p>
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <SourceLine citations={result.citations} />
+              {mode === "subtopic" && subtopicId && (
+                <Link
+                  href={`/goals/${goalId}/topics/${subtopicId}`}
+                  className="flex items-center gap-1.5 text-label-l text-primary hover:underline"
+                >
+                  <Icon name="menu_book" size={18} />
+                  Review in lesson
+                </Link>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
+
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        {result ? (
+          state.flagged ? (
+            <span role="status" className="text-body-m text-on-surface-variant">
+              Thanks. This question won&apos;t be shown to you again.
+            </span>
+          ) : (
+            <button type="button" className={button("text", "-ml-3")} onClick={() => void flag()}>
+              <Icon name="flag" />
+              Flag this question
+            </button>
+          )
+        ) : (
+          <span />
+        )}
+        {!result ? (
+          <button
+            type="button"
+            className={button("filled")}
+            disabled={chosen === null || busy}
+            onClick={() => void check()}
+          >
+            Check answer
+          </button>
+        ) : (
+          <button type="button" className={button("filled")} onClick={() => void load()}>
+            {last ? "See results" : "Next"}
+            <Icon name="arrow_forward" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
+const TYPE_ICON: Record<string, IconName> = { web: "article", youtube: "smart_display", pdf: "picture_as_pdf" };
+
 function SourceLine({ citations }: { citations: Citation[] }) {
   if (!citations.length) return null;
   return (
-    <p className="text-sm text-zinc-600 dark:text-zinc-400">
-      Source:{" "}
+    <ul aria-label="Sources" className="flex flex-wrap gap-x-4 gap-y-2">
       {citations.map((c, i) => {
-        const text = `[${c.n}] ${c.title}${c.label ? `, ${c.label}` : ""}`;
+        const text = `${c.title}${c.label ? ` · ${c.label}` : ""}`;
         return (
-          <span key={i}>
-            {i > 0 && " "}
+          <li key={i} className="flex items-center gap-2 text-body-m text-on-surface-variant">
+            <span
+              aria-hidden
+              className="grid h-5 min-w-5 place-items-center rounded-full bg-surface px-1.5 text-[11px] font-medium"
+            >
+              {c.n}
+            </span>
+            <Icon name={TYPE_ICON[c.type] ?? "article"} size={18} />
             {c.href ? (
               <a
                 href={c.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-indigo-700 underline-offset-2 hover:underline dark:text-indigo-300"
+                className="text-primary underline underline-offset-2 [overflow-wrap:anywhere]"
               >
                 {text}
               </a>
             ) : (
-              text
+              <span className="[overflow-wrap:anywhere]">{text}</span>
             )}
-          </span>
+          </li>
         );
       })}
-    </p>
+    </ul>
   );
 }
 
-function Results({ goalId, summary }: { goalId: string; summary: QuizSummary }) {
+function praise(score: number): string {
+  return score >= 0.8 ? "Nice work." : score >= 0.5 ? "Good effort." : "Keep practising.";
+}
+
+function Results({
+  goalId,
+  mode,
+  title,
+  summary,
+  overview,
+}: {
+  goalId: string;
+  mode: "subtopic" | "review";
+  title: string;
+  summary: QuizSummary;
+  overview: React.ReactNode;
+}) {
+  const correct = summary.topics.reduce((n, t) => n + t.correct, 0);
+  const total = summary.topics.reduce((n, t) => n + t.total, 0);
+  const score = total ? correct / total : 0;
   return (
-    <div className="mt-6 flex flex-col gap-6">
-      <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Your results</h2>
-      <ul className="flex flex-col gap-2">
-        {summary.topics.map((t) => (
-          <li
-            key={t.subtopic_id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-          >
-            <span className="font-medium text-zinc-900 dark:text-zinc-50">{t.title}</span>
-            <span className="text-sm text-zinc-700 dark:text-zinc-300">
-              {LABEL_TEXT[t.label]} · {t.correct} of {t.total}
-            </span>
-          </li>
-        ))}
-      </ul>
+    <div className="mt-6 flex flex-col gap-8">
+      <div>
+        <p className="text-body-m text-on-surface-variant">{title}</p>
+        <h2 className="mt-1 text-display-s text-on-surface">
+          {correct} of {total}
+        </h2>
+        {mode === "subtopic" && summary.topics[0] ? (
+          <p className="mt-2 text-body-l text-on-surface-variant">
+            {praise(score)} {summary.topics[0].title} is now {LABEL_TEXT[summary.topics[0].label]}.
+          </p>
+        ) : (
+          <ul aria-label="This quiz" className="mt-2 flex flex-col gap-1 text-body-l text-on-surface-variant">
+            {summary.topics.map((t) => (
+              <li key={t.subtopic_id}>
+                {t.title}: {t.correct} of {t.total}, now {LABEL_TEXT[t.label]}.
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {summary.wrong.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">To review</h3>
-          <ul className="mt-3 flex flex-col gap-3">
+        <section aria-labelledby="to-review">
+          <h3 id="to-review" className="text-title-m text-on-surface">
+            To review
+          </h3>
+          <ul className="mt-3 flex flex-col gap-2">
             {summary.wrong.map((w, i) => (
-              <li key={i} className="rounded-xl border border-zinc-200 p-4 text-sm dark:border-zinc-800">
-                <p className="font-medium text-zinc-900 dark:text-zinc-50">{w.stem}</p>
-                <p className="mt-1 text-zinc-700 dark:text-zinc-300">Answer: {w.correct_option}</p>
-                <p className="mt-1 text-zinc-600 dark:text-zinc-400">{w.explanation}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-3">
+              <li key={i} className="rounded-2xl bg-surface-container-low p-4 text-body-m">
+                <p className="text-title-m text-on-surface">{w.stem}</p>
+                <p className="mt-1 text-on-surface">Answer: {w.correct_option}</p>
+                <p className="mt-1 text-on-surface-variant">{w.explanation}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
                   <SourceLine citations={w.citations} />
                   <Link
                     href={`/goals/${goalId}/topics/${w.subtopic_id}`}
-                    className="font-medium text-indigo-700 underline-offset-2 hover:underline dark:text-indigo-300"
+                    className="flex items-center gap-1.5 text-label-l text-primary hover:underline"
                   >
+                    <Icon name="menu_book" size={18} />
                     Review the lesson
                   </Link>
                 </div>
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
-      <Link href={`/goals/${goalId}`} className="text-sm font-medium text-zinc-600 underline-offset-4 hover:underline dark:text-zinc-400">
-        ← Back to your map
-      </Link>
+
+      {overview}
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Link href={`/goals/${goalId}`} className={button("text")}>
+          Back to map
+        </Link>
+        <Link href={`/goals/${goalId}/review/quiz`} className={button("filled")}>
+          <Icon name="quiz" />
+          Start review quiz
+        </Link>
+      </div>
     </div>
   );
 }
