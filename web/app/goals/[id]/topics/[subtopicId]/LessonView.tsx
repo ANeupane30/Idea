@@ -271,7 +271,11 @@ function FormatChooser({
 
   useEffect(() => {
     const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+      // Start on the selected format, not the close button.
+      dialog.querySelector<HTMLInputElement>("input[type=radio]:checked")?.focus();
+    }
   }, []);
 
   return (

@@ -111,3 +111,15 @@ Items the per-task reviews and the final whole-branch review found and left for 
 ## After Phase 4
 
 - **Before production:** set `FETCH_USER_AGENT` in the worker env to name the real site, e.g. `LearningPlatform/1.0 (+https://your-site.example)`. Sites such as Wikipedia reject requests without a contact URL; the default points at `http://localhost:3000`.
+
+## From the redesign (Material, 2026-10-19)
+
+- **Product (designed, not built):**
+  - The Library page (search, filter by type, source detail with the topics each covers, Remove).
+  - The cross-goal Review rail page.
+  - Source removal (needs an RPC).
+- **Design gaps:**
+  - The Add source dialog says "Ready" plus the relevance chip, not "matched to <topic>" (needs a coverage lookup per source).
+  - Lesson citations are chips after each section, not inline after sentences (the model emits per-section citations).
+- **Before production:** pick the real app name in `web/lib/brand.ts` (the design says "[App name]"; the placeholder is "Learning Map").
+- **Dev:** `devIndicators` is off in `next.config.ts` because the badge covered the rail and the FAB.
