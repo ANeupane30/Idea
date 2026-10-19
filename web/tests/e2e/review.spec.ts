@@ -28,18 +28,23 @@ async function quizJoins(page: Page, rightOrWrong: boolean[]) {
   await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 30_000 });
 }
 
+const rail = (page: Page) => page.getByRole("navigation", { name: "Main" });
+
 test("mastery bar after a quiz", async ({ page }) => {
   await quizJoins(page, [false, false, true, true, true]);
   const node = page.getByRole("navigation", { name: "Topic map" }).getByRole("button", { name: /^4 Joining tables/ });
   await expect(node.getByRole("img", { name: /^Mastery: (Weak|Developing)$/ })).toBeVisible();
+  await rail(page).getByRole("link", { name: "Review" }).click();
   const next = page.getByRole("region", { name: "What to study next" });
-  await expect(next.getByRole("link", { name: "Joining tables" })).toBeVisible();
-  await expect(next.getByRole("link", { name: "Start a review quiz" })).toBeVisible();
+  const row = next.getByRole("listitem").filter({ hasText: "Joining tables" });
+  await expect(row.getByRole("link", { name: "Open lesson" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Start review quiz" })).toBeVisible();
 });
 
 test("review quiz", async ({ page }) => {
   await quizJoins(page, [true, true, true, false, true]);
-  await page.getByRole("link", { name: "Start a review quiz" }).click();
+  await rail(page).getByRole("link", { name: "Review" }).click();
+  await page.getByRole("link", { name: "Start review quiz" }).click();
   await expect(page.getByText("Question 1 of 10")).toBeVisible({ timeout: 30_000 });
   for (let n = 1; n <= 10; n++) {
     await expect(page.getByText(`Question ${n} of 10`)).toBeVisible();
@@ -48,13 +53,23 @@ test("review quiz", async ({ page }) => {
     await page.getByRole("button", { name: n < 10 ? "Next question" : "See results" }).click();
   }
   await expect(page.getByRole("heading", { name: "Your results" })).toBeVisible();
-  await expect(page.getByRole("listitem").filter({ hasText: "Joining tables" })).toContainText("10 of 10");
+  await expect(page.getByRole("listitem").filter({ hasText: "Joining tables" }).first()).toContainText("10 of 10");
+});
+
+test("your topics lists every topic", async ({ page }) => {
+  await quizJoins(page, [true, true, true, true, true]);
+  const topics = await page.getByRole("navigation", { name: "Topic map" }).locator("button[data-topic-id]").count();
+  await rail(page).getByRole("link", { name: "Review" }).click();
+  const list = page.getByRole("list", { name: "Your topics" });
+  await expect(list.getByRole("listitem")).toHaveCount(topics);
+  await expect(list.getByRole("listitem").filter({ hasText: "Joining tables" })).toContainText("Strong");
 });
 
 test("review without practice", async ({ page }) => {
   await guestBuildsMap(page);
   await page.goto(`${page.url()}/review`);
   await expect(page.getByText("Take a topic quiz first, then come back for a review.")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("link", { name: "Start review quiz" })).toHaveCount(0);
 });
 
 for (const [width, height] of [
