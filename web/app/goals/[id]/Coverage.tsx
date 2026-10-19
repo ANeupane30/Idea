@@ -1,19 +1,8 @@
-import { COVERAGE_TEXT, type CoverageState } from "@/lib/sources";
-
-const BADGE_STYLE: Record<CoverageState, string> = {
-  covered: "bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-200",
-  thin: "bg-amber-100 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200",
-  gap: "bg-rose-100 text-rose-800 dark:bg-rose-400/15 dark:text-rose-200",
-};
+import { StatusChip } from "@/components/ui/chips";
+import type { CoverageState } from "@/lib/sources";
 
 export function CoverageBadge({ state, className = "" }: { state: CoverageState; className?: string }) {
-  return (
-    <span
-      className={`inline-block rounded-full px-2 py-px align-middle text-[11px] font-semibold leading-4 ${BADGE_STYLE[state]} ${className}`}
-    >
-      {COVERAGE_TEXT[state]}
-    </span>
-  );
+  return <StatusChip kind="coverage" value={state} className={className} />;
 }
 
 /** "Try searching for: …" with web and YouTube search links. */

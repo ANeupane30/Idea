@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
+import { InfoChip } from "@/components/ui/chips";
 import { createClient } from "@/lib/supabase/server";
 import { SOURCE_COLUMNS, type CoverageState, type NodeCoverage, type RelevanceLabel, type SourceRow } from "@/lib/sources";
 import { addNextItems } from "@/lib/sources";
@@ -13,17 +14,22 @@ import { Sources } from "./Sources";
 import { StudyNext, type MasteryRow } from "./StudyNext";
 import { TopicMap, type Level } from "./TopicMap";
 
+const LEVEL_TEXT: Record<Level, string> = { beginner: "Beginner", intermediate: "Intermediate", advanced: "Advanced" };
+const LEVEL_ICON = {
+  beginner: "signal_cellular_alt_1_bar",
+  intermediate: "signal_cellular_alt_2_bar",
+  advanced: "signal_cellular_alt",
+} as const;
+
 const LEVELS = ["beginner", "intermediate", "advanced"] as const;
 
 async function TopicMapSlot({
   goalId,
   goalTitle,
-  level,
   sources,
 }: {
   goalId: string;
   goalTitle: string;
-  level: Level | null;
   sources: React.ReactNode;
 }) {
   const supabase = await createClient();
@@ -58,7 +64,7 @@ async function TopicMapSlot({
   );
   return (
     <GoalWorkspace sources={sources} suggestions={suggestions}>
-      <TopicMap goalId={goalId} goalTitle={goalTitle} level={level} tree={tree} coverage={coverage} mastery={mastery} />
+      <TopicMap goalId={goalId} goalTitle={goalTitle} tree={tree} coverage={coverage} mastery={mastery} />
     </GoalWorkspace>
   );
 }
@@ -125,17 +131,27 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
     .eq("id", id)
     .maybeSingle();
   if (!data) notFound();
+  const level = LEVELS.find((l) => l === data.map_level) ?? null;
   return (
     <AppShell goalId={data.id}>
     <main className="mx-auto w-full max-w-[1800px] p-4 sm:p-6">
-      <h1 className="text-2xl font-semibold">{data.title}</h1>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h1 className="min-w-0 text-headline-m text-on-surface [overflow-wrap:anywhere]">{data.title}</h1>
+        {level && data.map_status === "ready" && (
+          // The level the worker built this map for, not the learner's current level.
+          <InfoChip icon={LEVEL_ICON[level]}>
+            <span>
+              <span className="sr-only">Built for: </span>
+              {LEVEL_TEXT[level]}
+            </span>
+          </InfoChip>
+        )}
+      </div>
       <MapStatus goal={data}>
         {data.map_status === "ready" && (
           <TopicMapSlot
             goalId={data.id}
             goalTitle={data.title}
-            // The level the worker built this map for, not the learner's current level.
-            level={LEVELS.find((l) => l === data.map_level) ?? null}
             sources={<SourcesSlot goalId={data.id} archived={data.status === "archived"} />}
           />
         )}

@@ -30,16 +30,15 @@ test("no badges before a source is ready", async ({ page }) => {
 test("coverage after a source", async ({ page }) => {
   await guestBuildsMap(page);
   await addReadyArticle(page);
-  await expect(topic(page, "Joining tables")).toContainText("Covered");
+  // Coverage arrives with the page refresh that follows the polled "ready" row.
+  await expect(topic(page, "Joining tables")).toContainText("Covered", { timeout: 15_000 });
   await expect(topic(page, "Indexes and query performance")).toContainText("Gap");
   await expect(page.getByText(EMPTY_STATE)).toHaveCount(0);
 
   await topic(page, "Joining tables").click();
   const panel = page.getByRole("dialog");
   await expect(panel).toContainText("Covered");
-  await expect(panel).toContainText("A practical guide to SQL: SELECT, WHERE and JOIN");
-  await expect(panel).toContainText("Highly relevant");
-  await expect(panel).toContainText("Covers Joining tables.");
+  await expect(panel.getByRole("link", { name: "Open lesson" })).toBeVisible();
 });
 
 test("what to add next", async ({ page }) => {

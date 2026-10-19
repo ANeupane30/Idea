@@ -59,8 +59,7 @@ test.describe("desktop", () => {
     await topic2.click();
     const panel = page.getByRole("dialog");
     await expect(panel).toBeVisible();
-    await expect(panel.getByRole("heading", { name: MAP[1].title })).toBeVisible();
-    await expect(panel).toContainText("Topic 2 of 6");
+    await expect(panel.getByRole("heading", { name: `2 ${MAP[1].title}` })).toBeVisible();
     await expect(panel).toContainText(MAP[1].summary);
 
     // The opener is a disclosure for the panel, and selection looks different
@@ -73,14 +72,15 @@ test.describe("desktop", () => {
     await expect(topic2).toHaveCSS("border-top-width", "2px");
     await expect(mainButtons(page).nth(0)).toHaveCSS("border-top-width", "1px");
 
-    await panel.getByRole("button", { name: MAP[1].children[0], exact: true }).click();
+    const child = nav.getByRole("button", { name: MAP[1].children[0], exact: true });
+    await child.click();
     await expect(panel.getByRole("heading", { name: MAP[1].children[0] })).toBeVisible();
     await expect(panel).toContainText(`Part of: ${MAP[1].title}`);
+    await expect(topic2).toHaveAttribute("aria-expanded", "false");
 
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
-    await expect(topic2).toBeFocused();
-    await expect(topic2).toHaveAttribute("aria-expanded", "false");
+    await expect(child).toBeFocused();
 
     // The Close button works too.
     await topic2.click();
@@ -88,6 +88,16 @@ test.describe("desktop", () => {
     await panel.getByRole("button", { name: "Close" }).click();
     await expect(panel).toBeHidden();
     await expect(topic2).toBeFocused();
+  });
+
+  test("detail card sits beside the map on wide screens", async ({ page }) => {
+    await signUpFresh(page);
+    const nav = await createReadyMap(page);
+    await nav.getByRole("button", { name: `2 ${MAP[1].title}`, exact: true }).click();
+    const panel = (await page.getByRole("dialog").boundingBox())!;
+    const map = (await nav.boundingBox())!;
+    expect(panel.x).toBeGreaterThanOrEqual(map.x + map.width);
+    expect(panel.y).toBeLessThan(400);
   });
 
   test("no edit controls", async ({ page }) => {
