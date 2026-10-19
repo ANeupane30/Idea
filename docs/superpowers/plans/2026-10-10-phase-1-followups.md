@@ -91,3 +91,19 @@ Items the per-task reviews and the final whole-branch review found and left for 
   - Sources polling can miss a finish that coincides with a new add, and a slow poll can show stale rows briefly; MapStatus stops polling if its single refresh fails.
   - No browser test with a malicious Mermaid diagram (click handlers, init directives, HTML labels).
   - The format chooser ignores a save error.
+
+## From Phase 4 (quizzes and mastery)
+
+- **Before production:** live smoke test of question generation (Sonnet) and validation (Haiku).
+- **Quality:** question evals (spec §11: validator pass rate). First-round rejected questions are discarded today; log them so the pass rate can be measured.
+- **Product:** format inference from `format_events` and per-format quiz results (spec §12, item 1); a cleanup of rejected questions.
+- **Deferred minors from the final review:**
+  - `mastery_decayed` underflows after about 8.8 years away at half-life 3; clamp the exponent.
+  - `finish_quiz` doubles the half-life even if no item was answered (reachable only by calling the function directly).
+  - The top-up pending check isn't atomic, so two tabs can queue two top-ups.
+  - The same question can be served in two open quizzes before either is answered.
+  - A race on `quiz_items` positions shows as "couldn't prepare questions" (not reachable from the UI).
+  - The worker doesn't regenerate questions the model left out, and a refusal in the regeneration call discards the first round's passes.
+  - The quiz runner ignores a failed flag call, shows generic copy for `not_current_question` / `not_found`, and doesn't catch thrown action errors.
+  - The mastery bar is `role="img"` inside a button; sr-only text would be more robust.
+  - The generation-limit trigger scans `jobs` by `payload->>'user_id'` without an index.
