@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { expectNoOverlap, guestBuildsMap } from "./helpers";
+import { expectNoOverlap, guestBuildsMap, showSources } from "./helpers";
 
 // The fixture article covers SELECT, WHERE and joins, but not indexes.
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
@@ -10,11 +10,13 @@ function topic(page: Page, title: string) {
 }
 
 async function addReadyArticle(page: Page) {
+  await showSources(page);
   await page.getByLabel("Add a link").fill(ARTICLE);
   await page.getByRole("button", { name: "Add link" }).click();
   const row = page.getByRole("list", { name: "Your sources" }).getByRole("listitem").first();
   await expect(row).toContainText("Highly relevant", { timeout: 30_000 });
   await expect(topic(page, "Joining tables")).toContainText(/Covered|Thin|Gap/);
+  await page.keyboard.press("Escape"); // closes the Sources drawer on narrow screens
 }
 
 test("no badges before a source is ready", async ({ page }) => {

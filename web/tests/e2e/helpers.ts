@@ -50,12 +50,15 @@ const FIXTURE_ARTICLE = "http://127.0.0.1:8765/sql-article.html";
 /** Guest map with the fixture article added and matched. */
 export async function mapWithArticle(page: Page) {
   await guestBuildsMap(page);
+  await showSources(page);
   await page.getByLabel("Add a link").fill(FIXTURE_ARTICLE);
   await page.getByRole("button", { name: "Add link" }).click();
   await expect(page.getByRole("list", { name: "Your sources" }).getByRole("listitem").first()).toContainText(
     "Highly relevant",
     { timeout: 30_000 },
   );
+  // On narrow screens the Sources drawer covers the map: close it.
+  await page.keyboard.press("Escape");
 }
 
 export async function openLesson(page: Page, topic: string) {
@@ -82,4 +85,11 @@ export async function expectNoOverlap(page: Page, width: number) {
     }
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+}
+
+/** On narrow screens the Sources panel starts closed: open it if the link field isn't showing. */
+export async function showSources(page: Page) {
+  const field = page.getByLabel("Add a link");
+  if (!(await field.isVisible())) await page.getByRole("button", { name: "Sources panel", exact: true }).click();
+  await expect(field).toBeVisible();
 }

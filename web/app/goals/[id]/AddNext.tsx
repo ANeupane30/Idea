@@ -21,7 +21,7 @@ export function AddNext({
       <h2 id={headingId} className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
         What to add next
       </h2>
-      <ul className="mt-4 grid gap-3 md:grid-cols-2">
+      <ul className="mt-4 grid gap-3">
         {items.map((node) => (
           <li
             key={node.id}

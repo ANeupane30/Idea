@@ -127,8 +127,8 @@ export function Sources({ goalId, userId, archived, sources }: Props) {
       </h2>
 
       {!archived && (
-        <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
-          <form onSubmit={submitLink} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="mt-4 flex flex-col gap-4">
+          <form onSubmit={submitLink} className="flex flex-col gap-2">
             <label className="flex flex-1 flex-col gap-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">
               Add a link
               <input
