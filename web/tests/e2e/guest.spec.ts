@@ -23,12 +23,12 @@ test("visitor lands on start page", async ({ page }) => {
   await expect(page.getByRole("heading", { name: START_HEADING })).toBeVisible();
   await expect(page.getByLabel("Your goal")).toHaveAttribute(
     "placeholder",
-    "e.g. Learn the basics of personal finance",
+    "Learn the basics of personal finance",
   );
-  const level = page.getByRole("group", { name: "How much do you already know about it?" });
-  await expect(level.getByRole("radio", { name: "I'm new to it" })).toBeChecked();
-  await expect(level.getByRole("radio", { name: "I know the basics" })).not.toBeChecked();
-  await expect(level.getByRole("radio", { name: "I'm experienced" })).not.toBeChecked();
+  const level = page.getByRole("group", { name: "Your level" });
+  await expect(level.getByRole("radio", { name: "Beginner" })).toBeChecked();
+  await expect(level.getByRole("radio", { name: "Intermediate" })).not.toBeChecked();
+  await expect(level.getByRole("radio", { name: "Advanced" })).not.toBeChecked();
   await expect(page.getByRole("button", { name: "Build my learning map" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/");
   expect(visited.some((u) => /\/sign-(in|up)/.test(u))).toBe(false);

@@ -23,3 +23,16 @@ test("first run: sign up, onboard, create goal, map persists", async ({ page }) 
   const row = page.getByRole("listitem").filter({ hasText: "Learn SQL" });
   await expect(row.getByText("Ready")).toBeVisible();
 });
+
+test("start page matches the design", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "What do you want to learn?" })).toBeVisible();
+  await expect(page.getByLabel("Your goal")).toHaveAttribute("placeholder", "Learn the basics of personal finance");
+  await expect(page.getByRole("radio", { name: "Beginner" })).toBeChecked();
+  await expect(page.getByText("No account needed. Add articles, videos and PDFs once your map is ready.")).toBeVisible();
+  await page.getByRole("radio", { name: "Advanced" }).check();
+  await expect(page.getByRole("radio", { name: "Beginner" })).not.toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+});
