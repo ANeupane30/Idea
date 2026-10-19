@@ -4,10 +4,10 @@ export const FORMATS = ["visual", "text", "examples", "summary"] as const;
 export type Format = (typeof FORMATS)[number];
 
 export const FORMAT_TEXT: Record<Format, { label: string; hint: string }> = {
-  visual: { label: "Visual", hint: "Diagrams that carry the explanation" },
-  text: { label: "Text", hint: "A structured explanation with headings" },
-  examples: { label: "Examples", hint: "Worked examples and analogies" },
-  summary: { label: "Summary", hint: "About 200 words of key points" },
+  visual: { label: "Visual", hint: "Diagrams first, with short notes." },
+  text: { label: "Text", hint: "Clear explanations, step by step." },
+  examples: { label: "Examples", hint: "Worked examples and everyday analogies." },
+  summary: { label: "Summary", hint: "Key points only." },
 };
 
 export type Section = { markdown: string; mermaid: string | null; citations: number[] };

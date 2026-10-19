@@ -11,7 +11,7 @@ const lesson = (page: Page) => page.getByLabel("Lesson", { exact: true });
 async function chooseFormat(page: Page, label: string) {
   await expect(page.getByRole("heading", { name: "How do you like to learn?" })).toBeVisible();
   await page.getByRole("radio", { name: new RegExp(`^${label}`) }).check();
-  await page.getByRole("button", { name: "Show my lesson" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
 }
 
 test("first lesson asks for a format", async ({ page }) => {
@@ -20,8 +20,19 @@ test("first lesson asks for a format", async ({ page }) => {
   await chooseFormat(page, "Visual");
   await expect(lesson(page).locator("section")).toHaveCount(2, { timeout: 30_000 });
   await expect(lesson(page).getByRole("figure", { name: "Diagram" }).first().locator("svg")).toBeVisible();
-  const cite = lesson(page).getByRole("link", { name: "[1]" }).first();
+  const cite = lesson(page).getByRole("link", { name: /^Source 1:/ }).first();
   await expect(cite).toHaveAttribute("href", new RegExp(`^${ARTICLE.replace(/[.?]/g, "\\$&")}`));
+});
+
+test("format chooser closes back to the map", async ({ page }) => {
+  await mapWithArticle(page);
+  const mapUrl = page.url();
+  await openLesson(page, "Joining tables");
+  const chooser = page.getByRole("dialog", { name: "How do you like to learn?" });
+  await expect(chooser).toBeVisible();
+  await expect(chooser.getByRole("radio", { name: /^Visual Diagrams first, with short notes\./ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(mapUrl);
 });
 
 test("stored lesson loads without writing again", async ({ page }) => {
@@ -102,7 +113,13 @@ test("stale lesson can be refreshed", async ({ page }) => {
 
   await page.goto(lessonUrl);
   await expect(page.getByText("New sources available. Refresh lesson?")).toBeVisible();
-  await page.getByRole("button", { name: "Refresh lesson" }).click();
+  // Dismiss hides it for this visit only; the lesson is still out of date.
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByText("New sources available. Refresh lesson?")).toHaveCount(0);
+  await expect(lesson(page).locator("section")).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByText("New sources available. Refresh lesson?")).toBeVisible();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByText("New sources available. Refresh lesson?")).toHaveCount(0);
   await expect(lesson(page).locator("section")).toHaveCount(2, { timeout: 30_000 });
   await page.reload();
@@ -114,8 +131,8 @@ test("feedback", async ({ page }) => {
   await openLesson(page, "Joining tables");
   await chooseFormat(page, "Visual");
   await expect(lesson(page).locator("section")).toHaveCount(2, { timeout: 30_000 });
-  await expect(page.getByText("Was this lesson helpful?")).toBeVisible();
-  await page.getByRole("button", { name: "Yes" }).click();
+  await expect(page.getByText("Was this helpful?")).toBeVisible();
+  await page.getByRole("button", { name: "Helpful", exact: true }).click();
   await expect(page.getByText("Thanks for the feedback.")).toBeVisible();
 
   await page.getByRole("group", { name: "Show me this as:" }).getByRole("button", { name: "Summary" }).click();

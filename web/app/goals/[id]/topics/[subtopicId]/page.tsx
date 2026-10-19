@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
-import { TopBar } from "@/components/top-bar";
+import { getViewer } from "@/components/site-header";
 import { createClient } from "@/lib/supabase/server";
 import { FORMATS, type Format, type Lesson } from "@/lib/lessons";
+import { buildTree, type SubtopicRow } from "@/lib/topic-tree";
 import { LessonView } from "./LessonView";
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -15,7 +16,8 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
 
-  const [{ data: topic }, { data: goal }, { data: prefs }, { data: rows }, { data: covering }] = await Promise.all([
+  const [{ data: topic }, { data: goal }, { data: prefs }, { data: rows }, { data: covering }, { data: all }, viewer] =
+    await Promise.all([
     supabase.from("subtopics").select("id, title, summary").eq("id", subtopicId).eq("goal_id", id).maybeSingle(),
     supabase.from("goals").select("id, title").eq("id", id).maybeSingle(),
     supabase
@@ -38,6 +40,8 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
       .eq("sources.status", "ready")
       .neq("sources.relevance_label", "off_topic")
       .limit(1),
+    supabase.from("subtopics").select("id, parent_id, title, summary, position, user_edited").eq("goal_id", id),
+    getViewer(),
   ]);
   if (!topic || !goal) notFound();
 
@@ -45,22 +49,23 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
   for (const row of (rows ?? []) as Lesson[]) lessons[row.format] ??= row;
   const preferred = FORMATS.find((f) => f === prefs?.preferred_format) ?? "text";
 
+  const tree = buildTree((all ?? []) as SubtopicRow[]);
+  const index = tree.findIndex((n) => n.id === topic.id);
+  const title = index >= 0 ? `${index + 1} ${topic.title}` : topic.title;
+
   return (
-    <>
-    <TopBar back={{ href: `/goals/${goal.id}`, label: "Back to your map" }} title={topic.title} />
-    <main className="mx-auto w-full max-w-3xl px-4 pb-10 sm:px-6">
-      {topic.summary && <p className="mt-2 text-on-surface-variant">{topic.summary}</p>}
-      <LessonView
-        goalId={goal.id}
-        goalTitle={goal.title}
-        subtopic={{ id: topic.id, title: topic.title }}
-        preferredFormat={preferred}
-        formatChosen={prefs?.format_chosen ?? false}
-        initialLessons={lessons}
-        hasSources={(covering ?? []).length > 0}
-      />
-    </main>
-    </>
+    <LessonView
+      userId={viewer.id}
+      title={title}
+      summary={topic.summary}
+      goalId={goal.id}
+      goalTitle={goal.title}
+      subtopic={{ id: topic.id, title: topic.title }}
+      preferredFormat={preferred}
+      formatChosen={prefs?.format_chosen ?? false}
+      initialLessons={lessons}
+      hasSources={(covering ?? []).length > 0}
+    />
   );
 }
 
