@@ -87,6 +87,11 @@ jobs:
             uv run --directory worker playwright install chromium
           fi
 
+      # The worker launches Chromium with its sandbox on (by design). Ubuntu 24.04 runners block
+      # the unprivileged user namespaces the sandbox needs; allow them for this job.
+      - name: Allow Chromium's sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Start Supabase
         run: npx supabase start -x studio,edge-runtime,logflare,vector,imgproxy,supavisor
 
