@@ -48,7 +48,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      # Route types (LayoutProps, PageProps…) are generated, normally by `next dev` or `next build`.
+      # Route types (LayoutProps, PageProps...) are generated, normally by `next dev` or `next build`.
       - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npx eslint .
@@ -129,3 +129,29 @@ jobs:
           name: playwright-results
           path: web/test-results
           retention-days: 7
+
+  # Runs here rather than in a workflow_run workflow: those only fire from the default branch (main).
+  promote:
+    name: Promote dev to staging
+    needs: [web, integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Open or update the promotion pull request
+        env:
+          GH_TOKEN: ${{ secrets.PROMOTION_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          body="Promotes dev to staging. CI passed on dev at ${SHA:0:7}.
+
+          After merging, staging deploys for QA: fill in docs/qa/qa-report-template.md."
+          existing="$(gh pr list --base staging --head dev --state open --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body "$body"
+            echo "Updated #$existing"
+          else
+            gh pr create --base staging --head dev --title "Promote dev to staging" --body "$body"
+          fi
