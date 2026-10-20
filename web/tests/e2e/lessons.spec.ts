@@ -1,28 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { guestBuildsMap } from "./helpers";
+import { mapWithArticle, openLesson } from "./helpers";
 
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
 
-async function mapWithArticle(page: Page) {
-  await guestBuildsMap(page);
-  await page.getByLabel("Add a link").fill(ARTICLE);
-  await page.getByRole("button", { name: "Add link" }).click();
-  await expect(page.getByRole("list", { name: "Your sources" }).getByRole("listitem").first()).toContainText(
-    "Highly relevant",
-    { timeout: 30_000 },
-  );
-}
-
-async function openLesson(page: Page, topic: string) {
-  await page
-    .getByRole("navigation", { name: "Topic map" })
-    .getByRole("button", { name: new RegExp(`^(\\d+ )?${topic}`) })
-    .click();
-  await page.getByRole("dialog").getByRole("link", { name: "Open lesson" }).click();
-  // The first visit compiles the route in dev, so allow longer than the default.
-  await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}\/topics\/[0-9a-f-]{36}$/, { timeout: 20_000 });
-  await expect(page.getByRole("heading", { level: 1, name: topic })).toBeVisible();
-}
+// Each test builds a map and streams lessons (some also ingest a second source): allow 90 s.
+test.beforeEach(() => test.slow());
 
 const lesson = (page: Page) => page.getByLabel("Lesson", { exact: true });
 

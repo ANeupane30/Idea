@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { FormError } from "@/components/form-error";
 import { LessonFeedback } from "@/components/lesson-feedback";
@@ -21,6 +22,7 @@ import { chooseFormat, logFormatSwitch, sendFeedback } from "./lesson-actions";
 type Live = { status: "writing" | "error"; code?: string; sections: Section[]; sources: LessonSource[] };
 
 type Props = {
+  goalId: string;
   goalTitle: string;
   subtopic: { id: string; title: string };
   preferredFormat: Format;
@@ -29,7 +31,7 @@ type Props = {
   hasSources: boolean;
 };
 
-export function LessonView({ goalTitle, subtopic, preferredFormat, formatChosen, initialLessons, hasSources }: Props) {
+export function LessonView({ goalId, goalTitle, subtopic, preferredFormat, formatChosen, initialLessons, hasSources }: Props) {
   const chooserId = useId();
   const [chosen, setChosen] = useState(formatChosen);
   const [pick, setPick] = useState<Format>(preferredFormat);
@@ -203,6 +205,12 @@ export function LessonView({ goalTitle, subtopic, preferredFormat, formatChosen,
             )}
             <LessonSections sections={lesson.body.sections} sources={lesson.body.sources} />
             <LessonFeedback key={lesson.id} lessonId={lesson.id} send={sendFeedback} />
+            <Link
+              href={`/goals/${goalId}/topics/${subtopic.id}/quiz`}
+              className="mt-6 inline-flex rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-zinc-950"
+            >
+              Quiz me on this
+            </Link>
           </>
         ) : state?.status === "error" ? (
           <div className="flex flex-col items-start gap-3">

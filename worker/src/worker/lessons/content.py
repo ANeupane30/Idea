@@ -26,6 +26,18 @@ class LessonChunk:
     label: str
 
 
+def source_json(c: LessonChunk) -> dict:
+    """How a lesson or question cites a chunk: this user's source title and link."""
+    return {
+        "n": c.n,
+        "chunk_id": str(c.chunk_id),
+        "title": c.source_title,
+        "type": c.source_type,
+        "href": c.href,
+        "label": c.label,
+    }
+
+
 def citation_href(source_type: str, url_or_file: str, anchor: str | None, timestamp_start: float | None) -> str | None:
     if source_type == "web":
         return f"{url_or_file}#:~:text={quote(anchor, safe='')}" if anchor else url_or_file

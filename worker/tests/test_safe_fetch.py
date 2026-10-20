@@ -138,3 +138,24 @@ def test_connect_failure_permanent_read_timeout_retryable(public_dns):
 def test_unknown_host_unreachable():
     msg = permanent_message(lambda: check_host_allowed("https://no-such-host.invalid/", allow_private=False))
     assert msg == messages.UNREACHABLE
+
+
+def test_user_agent_is_descriptive_and_configurable(public_dns):
+    """Sites such as Wikipedia reject generic bot user agents (403); they need a contact URL."""
+    from worker.config import Settings
+
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers["user-agent"])
+        return html_response()
+
+    assert "+http" in Settings().fetch_user_agent
+    fetch_html("https://public.test/", allow_private=False, transport=httpx.MockTransport(handler))
+    fetch_html(
+        "https://public.test/",
+        allow_private=False,
+        transport=httpx.MockTransport(handler),
+        user_agent="MyApp/2.0 (+https://myapp.example)",
+    )
+    assert seen == [Settings().fetch_user_agent, "MyApp/2.0 (+https://myapp.example)"]

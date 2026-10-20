@@ -18,7 +18,7 @@ cd web && npm install && cd ..
 npx supabase start           # local Postgres + Auth; applies migrations
 ```
 
-The local stack uses ports 56320-56329 (not Supabase's default 543xx, which Windows can reserve). Guest sessions need anonymous sign-ins, which `supabase/config.toml` enables locally; a hosted project needs them enabled in its dashboard.
+The local stack uses ports 44320-44329. They sit below Windows's dynamic port range (49152-65535), where Hyper-V reserves blocks of ports at boot; Supabase's default 543xx and our earlier 563xx were both taken that way. Guest sessions need anonymous sign-ins, which `supabase/config.toml` enables locally; a hosted project needs them enabled in its dashboard.
 
 1. Copy `web/.env.local.example` to `web/.env.local` and fill in the values from `npx supabase status` (API URL and anon/publishable key).
 2. Create `worker/.env` with:

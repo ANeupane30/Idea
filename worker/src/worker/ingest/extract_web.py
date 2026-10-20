@@ -6,6 +6,7 @@ from urllib.parse import urljoin
 import httpx
 import trafilatura
 
+from worker.config import DEFAULT_USER_AGENT
 from worker.ingest import safe_fetch
 from worker.ingest.chunking import clean_text
 from worker.ingest.messages import NO_TEXT
@@ -100,9 +101,14 @@ def _title(html: str) -> str | None:
 
 
 def extract_web(
-    url: str, *, allow_private: bool, renderer: Renderer, transport: httpx.BaseTransport | None = None
+    url: str,
+    *,
+    allow_private: bool,
+    renderer: Renderer,
+    transport: httpx.BaseTransport | None = None,
+    user_agent: str = DEFAULT_USER_AGENT,
 ) -> Extracted:
-    page = safe_fetch.fetch_html(url, allow_private=allow_private, transport=transport)
+    page = safe_fetch.fetch_html(url, allow_private=allow_private, transport=transport, user_agent=user_agent)
     html = page.html
     text = _text(html)
     if len(text) < MIN_TEXT_CHARS:

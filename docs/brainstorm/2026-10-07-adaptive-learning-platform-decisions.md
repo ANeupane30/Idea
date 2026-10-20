@@ -1,7 +1,7 @@
 # Adaptive Learning Platform — Brainstorm Decision Log
 
 **Started:** 2026-10-07
-**Status:** Phase 1 on branch `phase-1` (2026-10-10) and Phase 2 on branch `phase-2` and Phase 3 on branch `phase-3` (2026-10-15/16) implemented. Awaiting review and merge. This is a decision log, not the final spec.
+**Status:** Phase 1 on branch `phase-1` (2026-10-10) and Phases 2, 3 and 4 on branches `phase-2`, `phase-3` and `phase-4` (2026-10-15 to 19) implemented. Every first-release feature in the spec now exists. Awaiting review and merge. This is a decision log, not the final spec.
 
 ## The idea
 
@@ -153,7 +153,8 @@ Key points:
 - [x] Guest demo, no forced sign-up (decision 12), implemented on `phase-1` (2026-10-15)
 - [x] Phase 2 (ingestion pipeline) plan and implementation, on branch `phase-2` (2026-10-15)
 - [x] Phase 3 (lessons) plan and implementation, on branch `phase-3` (2026-10-16)
-- [ ] Phase 4 (quizzes and mastery) plan
+- [x] Phase 4 (quizzes and mastery) plan and implementation, on branch `phase-4` (2026-10-19)
+- [ ] Production readiness (follow-ups) and quality evals
 
 ## Spec amendments (Phase 1)
 
@@ -179,6 +180,15 @@ Key points:
 - Diagrams are validated with mermaid.js in the worker's headless Chromium (the same validator the Mermaid CLI uses), one repair, then dropped.
 - Limits: guests 5 lessons in total; free 15 and Pro 150 a UTC day. A cached copy of an identical lesson doesn't count and cites the user's own sources; a lesson that streamed content counts even if it was cut off.
 
+## Spec amendments (Phase 4)
+
+- `quiz_questions` gains `user_id` and `citations` (this user's source titles and links); `options` is an array of 4.
+- New tables `quiz_banks` (per-topic bank status), `quizzes`, `quiz_items` and `question_flags`. `quiz_attempts` gains `quiz_id`, `seq`, `excluded` and `before` (the mastery row before the answer, used to undo a disputed answer).
+- Every quiz action is a security-definer SQL function (`start_quiz`, `next_question`, `answer_question`, `flag_question`, `finish_quiz`, `retry_quiz_bank`, `goal_mastery`); users never read answer keys.
+- Banks: 6 questions per difficulty, written by the `quiz_bank` worker job; a top-up of 6 is queued when the learner runs out of unseen questions at their level.
+- Generation limits (not in the spec): guests 5 bank generations in total, free 15 and Pro 150 a UTC day; failed generations don't count. Answering is unlimited.
+- The half-life resets to 3 when decayed mastery is below 0.5 before an answer, or the answer leaves the score below 0.5.
+
 ## Implementation decisions (Phase 1)
 
 - npm instead of pnpm, with the Supabase CLI as a root dev dependency (no global installs).
@@ -198,4 +208,4 @@ Key points:
 
 ## Next
 
-Review and merge `phase-1`, `phase-2` and `phase-3`, then write the Phase 4 (quizzes and mastery) plan.
+Review and merge `phase-1` through `phase-4`. Then work through the follow-ups marked "Before production" and build the quality evals (spec §11).

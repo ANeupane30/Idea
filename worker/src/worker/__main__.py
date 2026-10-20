@@ -14,6 +14,7 @@ from worker.ingest.handler import IngestHandler
 from worker.ingest.storage import SupabaseStorage
 from worker.jobs import Handler, run_once
 from worker.llm import make_llm
+from worker.quiz.handler import QuizBankHandler
 from worker.topic_map import TopicMapHandler
 
 log = logging.getLogger("worker")
@@ -91,8 +92,10 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         renderer=PlaywrightRenderer(settings.fetch_allow_private_hosts),
         transcripts=YouTubeTranscriptSource(),
         allow_private=settings.fetch_allow_private_hosts,
+        user_agent=settings.fetch_user_agent,
     )
-    return {"topic_map": TopicMapHandler(llm), "ingest_source": ingest}
+    quiz_bank = QuizBankHandler(llm, make_embedder(settings))
+    return {"topic_map": TopicMapHandler(llm), "ingest_source": ingest, "quiz_bank": quiz_bank}
 
 
 def main() -> None:

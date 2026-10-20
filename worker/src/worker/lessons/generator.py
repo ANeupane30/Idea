@@ -14,7 +14,7 @@ from psycopg.types.json import Jsonb
 
 from worker.ingest.embed import Embedder
 from worker.ingest.embeddings import ensure_subtopic_embeddings
-from worker.lessons.content import LessonChunk, cache_key, select_chunks
+from worker.lessons.content import LessonChunk, cache_key, select_chunks, source_json
 from worker.lessons.diagrams import DiagramValidator, check_diagrams
 from worker.lessons.parse import SectionStream
 from worker.lessons.prompt import build_lesson_prompt
@@ -30,17 +30,6 @@ def _error(code: str) -> dict:
     return {"type": "error", "code": code}
 
 
-def _source_json(c: LessonChunk) -> dict:
-    return {
-        "n": c.n,
-        "chunk_id": str(c.chunk_id),
-        "title": c.source_title,
-        "type": c.source_type,
-        "href": c.href,
-        "label": c.label,
-    }
-
-
 def _rebased_body(body: dict, chunks: list[LessonChunk]) -> dict | None:
     """A cached lesson's sections, with citations rebuilt from this user's chunks (their own titles
     and links). None when the cached citations can't all be matched: then a fresh lesson is made."""
@@ -50,7 +39,7 @@ def _rebased_body(body: dict, chunks: list[LessonChunk]) -> dict | None:
         chunk = mine.get(src.get("chunk_id", ""))
         if chunk is None:
             return None
-        rebased.append({**_source_json(chunk), "n": src["n"]})
+        rebased.append({**source_json(chunk), "n": src["n"]})
     return {"sections": body["sections"], "sources": rebased}
 
 
@@ -103,7 +92,7 @@ class LessonGenerator:
             yield _error("no_sources")
             return
         key = cache_key([c.chunk_id for c in chunks], topic["summary"] or topic["title"], fmt, level)
-        sources = [_source_json(c) for c in chunks]
+        sources = [source_json(c) for c in chunks]
 
         # 4. Identical inputs reuse a current lesson (not a generation). A refresh always regenerates.
         # The copy keeps the shared content (sections) but cites this user's own sources.
