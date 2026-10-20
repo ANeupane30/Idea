@@ -1,0 +1,124 @@
+# Full checks on every pull request into dev, staging or main, and on every push to dev
+# (so the dev -> staging promotion pull request shows checks for its head commit).
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, staging, main]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  detect:
+    name: Detect the app
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.check.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+      # dev starts from main, which has only docs: skip the checks until the app is there.
+      - id: check
+        run: echo "app=$([ -f web/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  web:
+    name: Web (typecheck, lint, unit)
+    needs: detect
+    if: needs.detect.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+      - run: npx vitest run
+
+  integration:
+    name: Database, worker and browser tests
+    needs: detect
+    if: needs.detect.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: worker/uv.lock
+
+      - name: Install tools and dependencies
+        run: |
+          npm ci
+          npm ci --prefix web
+          uv sync --locked --directory worker
+          npx --prefix web playwright install --with-deps chromium
+          # The worker renders JS-only pages with Chromium from Phase 2 on.
+          if uv run --directory worker python -c "import playwright" 2>/dev/null; then
+            uv run --directory worker playwright install chromium
+          fi
+
+      - name: Start Supabase
+        run: npx supabase start -x studio,edge-runtime,logflare,vector,imgproxy,supavisor
+
+      - name: Write local env files from the running stack
+        run: |
+          npx supabase status -o env > "$RUNNER_TEMP/supabase.env"
+          set -a; . "$RUNNER_TEMP/supabase.env"; set +a
+          token="$(openssl rand -hex 24)"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$PUBLISHABLE_KEY"
+            echo "LESSON_SERVER_URL=http://127.0.0.1:8787"
+            echo "LESSON_SERVER_TOKEN=$token"
+          } > web/.env.local
+          {
+            echo "LLM_PROVIDER=fake"
+            echo "SUPABASE_SECRET_KEY=$SECRET_KEY"
+            echo "LESSON_SERVER_TOKEN=$token"
+          } > worker/.env
+
+      - name: Database tests
+        run: npx supabase test db
+
+      - name: Worker tests
+        run: uv run --directory worker pytest -q
+
+      - name: Browser tests
+        working-directory: web
+        run: npx playwright test
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: web/test-results
+          retention-days: 7
