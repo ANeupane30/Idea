@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { LABEL_TEXT, searchQuery, type NodeCoverage } from "@/lib/sources";
 import type { TreeNode } from "@/lib/topic-tree";
@@ -131,11 +132,13 @@ function stub(kind: "main" | "child") {
 type Selection = { node: TreeNode; index: number; parent: TreeNode | null; branch: number };
 
 export function TopicMap({
+  goalId,
   goalTitle,
   level,
   tree,
   coverage,
 }: {
+  goalId: string;
   goalTitle: string;
   level: Level | null;
   tree: TreeNode[];
@@ -304,6 +307,7 @@ export function TopicMap({
             id={panelId}
             selection={selection}
             total={tree.length}
+            goalId={goalId}
             goalTitle={goalTitle}
             coverage={coverage?.[selection.node.id]}
             panelRef={panelRef}
@@ -339,6 +343,7 @@ function DetailPanel({
   id,
   selection,
   total,
+  goalId,
   goalTitle,
   coverage,
   panelRef,
@@ -348,6 +353,7 @@ function DetailPanel({
   id: string;
   selection: Selection;
   total: number;
+  goalId: string;
   goalTitle: string;
   coverage?: NodeCoverage;
   panelRef: React.RefObject<HTMLDivElement | null>;
@@ -388,6 +394,12 @@ function DetailPanel({
       <p className="mt-3 text-[15px] leading-relaxed text-zinc-700 dark:text-zinc-300">
         {node.summary ?? <span className="italic text-zinc-500 dark:text-zinc-400">No summary yet.</span>}
       </p>
+      <Link
+        href={`/goals/${goalId}/topics/${node.id}`}
+        className="mt-4 inline-flex rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-zinc-900"
+      >
+        Open lesson
+      </Link>
       {coverage && (
         <div className="mt-6">
           <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">

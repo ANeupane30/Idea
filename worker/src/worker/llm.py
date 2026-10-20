@@ -1,7 +1,9 @@
 """LLM client: Anthropic (structured output) and a fixture-backed fake, plus usage recording."""
 
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 import logging
+import re
 from decimal import Decimal
 from pathlib import Path
 from typing import Generic, Protocol, TypeVar
@@ -74,6 +76,13 @@ class LLM(Protocol):
         self, *, model: str, system: str, user: str, schema: type[T], max_tokens: int = 16000
     ) -> LLMResult[T]: ...
 
+    def stream_text(
+        self, *, model: str, system: str, user: str, max_tokens: int, on_usage: Callable[[LLMResult], None]
+    ) -> Iterator[str]:
+        """Yield text deltas, then call on_usage once. Afterwards raise LLMRefusal on a refusal and
+        LLMOutputError when the output was cut off at max_tokens."""
+        ...
+
 
 _PERMANENT_API_ERRORS = (
     anthropic.BadRequestError,
@@ -127,6 +136,44 @@ class AnthropicLLM:
         )
 
 
+    def stream_text(
+        self, *, model: str, system: str, user: str, max_tokens: int, on_usage: Callable[[LLMResult], None]
+    ) -> Iterator[str]:
+        final = None
+        try:
+            with self._client.beta.messages.stream(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                **_MODEL_OPTIONS.get(model, {}),
+            ) as stream:
+                try:
+                    yield from stream.text_stream
+                    final = stream.get_final_message()
+                finally:
+                    if final is None:
+                        # Closed early (the reader went away) or failed mid-stream: bill what was used so far.
+                        _bill_snapshot(stream, model, on_usage)
+        except _PERMANENT_API_ERRORS as e:
+            log.exception("Anthropic request rejected (%s)", type(e).__name__)
+            raise LLMRefusal(REFUSAL_MESSAGE, model=model) from e
+        on_usage(LLMResult(None, final.usage.input_tokens, final.usage.output_tokens, final.model))
+        if final.stop_reason == "refusal":
+            raise LLMRefusal(REFUSAL_MESSAGE, model=final.model)
+        if final.stop_reason == "max_tokens":
+            raise LLMOutputError("output cut off at max_tokens", model=final.model)
+
+
+def _bill_snapshot(stream, model: str, on_usage: Callable[[LLMResult], None]) -> None:
+    try:
+        snapshot = stream.current_message_snapshot
+        usage = snapshot.usage
+        on_usage(LLMResult(None, usage.input_tokens, usage.output_tokens, getattr(snapshot, "model", None) or model))
+    except Exception:
+        log.exception("could not bill a partial stream")
+
+
 class FakeLLM:
     def __init__(self, fixtures_dir: Path):
         self._dir = Path(fixtures_dir)
@@ -137,15 +184,33 @@ class FakeLLM:
         # Imported here: the ingest modules import this one.
         from worker.ingest.mapping import MappingResponse, fake_mapping_response
         from worker.ingest.punctuate import PunctuationResponse, fake_punctuation_response
+        from worker.lessons.diagrams import MermaidFix
 
         if schema is MappingResponse:
             return LLMResult(fake_mapping_response(user), 100, 50, model)
         if schema is PunctuationResponse:
             return LLMResult(fake_punctuation_response(user), 100, 100, model)
+        if schema is MermaidFix:
+            return LLMResult(MermaidFix(mermaid="graph TD; A-->B"), 50, 20, model)
         clarify = "[clarify]" in user and "<clarification_answer>" not in user
         name = "topic_map_clarify.json" if clarify else "topic_map.json"
         output = schema.model_validate_json((self._dir / name).read_text(encoding="utf-8"))
         return LLMResult(output, 100, 200, model)
+
+
+    def stream_text(
+        self, *, model: str, system: str, user: str, max_tokens: int, on_usage: Callable[[LLMResult], None]
+    ) -> Iterator[str]:
+        match = re.search(r"<format>(\w+)</format>", user)
+        text = (self._dir / f"lesson_{match.group(1) if match else 'text'}.txt").read_text(encoding="utf-8")
+        done = False
+        try:
+            for i in range(0, len(text), 40):
+                yield text[i : i + 40]
+            done = True
+        finally:
+            # Like the real client: a stream closed early is billed for what it produced.
+            on_usage(LLMResult(None, 100, 400 if done else 200, model))
 
 
 def make_llm(settings: Settings) -> LLM:

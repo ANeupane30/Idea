@@ -9,6 +9,7 @@ import {
   linkSchema,
   PDF_MAX_BYTES,
   PDF_TOO_BIG,
+  SOURCE_COLUMNS,
   STEP_TEXT,
   TYPE_TEXT,
   type SourceRow,
@@ -33,13 +34,43 @@ export function Sources({ goalId, userId, archived, sources }: Props) {
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  const busy = sources.some((s) => s.status === "queued" || s.status === "processing");
+  // Live steps come from polling just the source rows. The page is refreshed (for coverage and
+  // the map) only when a source finishes, not every 2 s, which raced React's commits.
+  const [rows, setRows] = useState(sources);
+  const [prevSources, setPrevSources] = useState(sources);
+  if (sources !== prevSources) {
+    // New server data after a refresh replaces the polled rows.
+    setPrevSources(sources);
+    setRows(sources);
+  }
+  const busyCount = rows.filter((s) => s.status === "queued" || s.status === "processing").length;
 
   useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => router.refresh(), 2000);
-    return () => clearInterval(timer);
-  }, [busy, router]);
+    if (busyCount === 0) return;
+    const supabase = createBrowserClient();
+    let stopped = false;
+    const timer = setInterval(async () => {
+      const { data } = await supabase
+        .from("sources")
+        .select(SOURCE_COLUMNS)
+        .eq("goal_id", goalId)
+        .order("created_at", { ascending: false })
+        .order("id");
+      if (stopped || !data) return;
+      const next = data as SourceRow[];
+      setRows(next);
+      const stillBusy = next.filter((s) => s.status === "queued" || s.status === "processing").length;
+      if (stillBusy < busyCount) {
+        stopped = true;
+        clearInterval(timer);
+        router.refresh();
+      }
+    }, 2000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [busyCount, goalId, router]);
 
   function run(action: () => Promise<ActionResult>, onOk?: () => void) {
     setError(null);
@@ -138,7 +169,7 @@ export function Sources({ goalId, userId, archived, sources }: Props) {
       {error && <FormError error={error} className="mt-3" />}
 
       <ul aria-label="Your sources" className="mt-6 flex flex-col gap-3">
-        {sources.map((s) => (
+        {rows.map((s) => (
           <SourceItem key={s.id} source={s} archived={archived} onRetry={() => run(() => retrySource(goalId, s.id))} />
         ))}
       </ul>

@@ -71,3 +71,23 @@ Items the per-task reviews and the final whole-branch review found and left for 
   - `addPdfSource` doesn't schema-validate `fileName` and `goalId`.
   - The PDF child process has a time limit but no memory limit.
   - `test_archived_goal_skips_write` is misnamed: it fails the source; it doesn't archive the goal.
+
+## From Phase 3 (lessons)
+
+- **Before production:**
+  - Run the lesson server and the job worker under one supervisor; set `LESSON_SERVER_TOKEN` in both the worker and the web app.
+  - A global daily spend alert and pause (spec §10), now that lessons are the biggest cost.
+  - Live smoke test of Sonnet lesson streaming and diagram repair.
+- **Quality:** lesson evals (spec §11): share of citations pointing to supporting text, Mermaid validity rate, spot-checked accuracy.
+- **Product:** open a cited PDF page through a signed URL (PDF citations show "page n" without a link today).
+- **Deferred minors from the final review:**
+  - A failed refresh hides the stored lesson until reload, and retry drops the refresh flag.
+  - "Try again" is shown for limit errors; `in_progress` promises the lesson "in a moment" but nothing polls.
+  - A lesson cut off at max_tokens fails after fully streaming (could keep the parsed sections).
+  - Coverage that lands while a lesson is generating doesn't mark the new lesson stale.
+  - One Chromium launch per diagram adds about 1-2 s per section; reuse one browser per lesson.
+  - On Windows, a client disconnect logs a stack trace (`ConnectionAbortedError`); behaviour is correct.
+  - The lesson page loads every historical lesson body for the topic; fetch only the latest per format.
+  - Sources polling can miss a finish that coincides with a new add, and a slow poll can show stale rows briefly; MapStatus stops polling if its single refresh fails.
+  - No browser test with a malicious Mermaid diagram (click handlers, init directives, HTML labels).
+  - The format chooser ignores a save error.

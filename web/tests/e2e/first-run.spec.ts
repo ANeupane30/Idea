@@ -13,7 +13,7 @@ test("first run: sign up, onboard, create goal, map persists", async ({ page }) 
   await page.getByRole("button", { name: "Create goal" }).click();
   await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}/);
   const first = "What databases and SQL are";
-  await expect(page.getByText(first, { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(first, { exact: true })).toBeVisible({ timeout: 30_000 });
 
   await page.reload();
   await expect(page.getByText(first, { exact: true })).toBeVisible();

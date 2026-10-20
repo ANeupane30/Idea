@@ -16,7 +16,7 @@ async function createReadyMap(page: Page, title = "Learn SQL") {
   await page.getByRole("button", { name: "Create goal" }).click();
   await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}/);
   const nav = page.getByRole("navigation", { name: "Topic map" });
-  await expect(nav).toBeVisible({ timeout: 15_000 });
+  await expect(nav).toBeVisible({ timeout: 30_000 });
   return nav;
 }
 

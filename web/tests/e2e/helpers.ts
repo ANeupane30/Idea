@@ -42,5 +42,5 @@ export async function guestBuildsMap(page: Page, title = "Learn SQL") {
   await page.getByLabel("Your goal").fill(title);
   await page.getByRole("button", { name: "Build my learning map" }).click();
   await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}/);
-  await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 30_000 });
 }

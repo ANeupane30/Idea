@@ -1,0 +1,19 @@
+<section>
+<markdown>## What a join does
+
+A join combines rows from related tables in one statement. The keys link the tables: a foreign key in one table matches the primary key in the other. <img src=x onerror=alert(1)> [click](javascript:alert(1))</markdown>
+<mermaid>graph LR; O[Orders] -->|customer_id| C[Customers]</mermaid>
+<cite>1</cite>
+</section>
+<section>
+<markdown>## Inner joins
+
+An inner join returns only the rows that have a match in both tables.</markdown>
+<cite>1, 2</cite>
+</section>
+<section>
+<markdown>## Left joins
+
+A left join keeps every row from the left table, even with no match on the right.</markdown>
+<cite>1</cite>
+</section>

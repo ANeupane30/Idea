@@ -33,7 +33,7 @@ async function TopicMapSlot({
   const coverage = readySources ? await loadCoverage(goalId) : undefined;
   return (
     <>
-      <TopicMap goalTitle={goalTitle} level={level} tree={tree} coverage={coverage} />
+      <TopicMap goalId={goalId} goalTitle={goalTitle} level={level} tree={tree} coverage={coverage} />
       {coverage ? (
         <AddNext goalTitle={goalTitle} tree={tree} coverage={coverage} />
       ) : (

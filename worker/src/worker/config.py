@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,3 +16,11 @@ class Settings(BaseSettings):
     embedder: Literal["fastembed", "fake"] = "fastembed"
     supabase_url: str = "http://127.0.0.1:56321"
     supabase_secret_key: str | None = None
+    lesson_server_host: str = "127.0.0.1"
+    lesson_server_port: int = 8787
+    # Shared with the web app (LESSON_SERVER_TOKEN in web/.env.local).
+    lesson_server_token: str | None = None
+    # mermaid.js for validating lesson diagrams (installed with the web app).
+    mermaid_js_path: str = str(
+        Path(__file__).resolve().parents[3] / "web" / "node_modules" / "mermaid" / "dist" / "mermaid.min.js"
+    )
