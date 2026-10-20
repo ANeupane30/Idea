@@ -48,6 +48,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      # Route types (LayoutProps, PageProps…) are generated, normally by `next dev` or `next build`.
+      - run: npx next typegen
       - run: npx tsc --noEmit
       - run: npx eslint .
       - run: npx vitest run
