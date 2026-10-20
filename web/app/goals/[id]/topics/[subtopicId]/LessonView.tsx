@@ -10,6 +10,7 @@ import { LessonSections } from "@/components/lesson-sections";
 import { TopBarView } from "@/components/top-bar-view";
 import { button } from "@/components/ui/buttons";
 import { Icon } from "@/components/ui/icon";
+import { GENERIC_ERROR, type ActionResult } from "@/lib/validation";
 import {
   FORMAT_TEXT,
   FORMATS,
@@ -152,9 +153,11 @@ export function LessonView({
         pick={pick}
         onPick={setPick}
         onContinue={async () => {
-          await chooseFormat(pick);
+          const result = await chooseFormat(pick);
+          if (!result.ok) return result;
           setFormat(pick);
           setChosen(true);
+          return result;
         }}
       />
     );
@@ -234,7 +237,7 @@ export function LessonView({
                   type="button"
                   aria-pressed={f === format}
                   onClick={() => switchTo(f)}
-                  className="flex min-h-10 flex-1 items-center justify-center gap-1.5 border-l border-outline px-3 text-label-l text-on-surface first:border-l-0 hover:bg-on-surface/8 focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-primary aria-pressed:bg-secondary-container aria-pressed:text-on-secondary-container sm:px-4 [&>svg]:hidden aria-pressed:[&>svg]:block"
+                  className="flex min-h-10 flex-1 items-center justify-center gap-1.5 border-l border-outline px-3 text-label-l text-on-surface first:border-l-0 hover:bg-on-surface/8 focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-primary aria-pressed:bg-secondary-container aria-pressed:text-on-secondary-container max-sm:px-2 sm:px-4 [&>svg]:hidden sm:aria-pressed:[&>svg]:block"
                 >
                   <Icon name="check" size={18} />
                   {FORMAT_TEXT[f].label}
@@ -262,12 +265,13 @@ function FormatChooser({
   mapHref: string;
   pick: Format;
   onPick: (f: Format) => void;
-  onContinue: () => Promise<void>;
+  onContinue: () => Promise<ActionResult>;
 }) {
   const router = useRouter();
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -292,7 +296,15 @@ function FormatChooser({
         onSubmit={async (e) => {
           e.preventDefault();
           setSaving(true);
-          await onContinue();
+          setError(null);
+          try {
+            const result = await onContinue();
+            if (!result.ok) setError(result.error);
+          } catch {
+            setError(GENERIC_ERROR);
+          } finally {
+            setSaving(false);
+          }
         }}
       >
         <div className="flex items-start justify-between gap-2">
@@ -309,6 +321,7 @@ function FormatChooser({
         <div className="mt-6">
           <FormatCards name="format" labelledBy={titleId} value={pick} onChange={onPick} />
         </div>
+        {error && <FormError error={error} className="mt-4" />}
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
           <p className="flex items-center gap-1.5 text-body-m text-on-surface-variant">
             <Icon name="swap_horiz" size={18} />

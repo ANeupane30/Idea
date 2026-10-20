@@ -90,6 +90,7 @@ export function Workspace({ goalId, userId, archived, isGuest, sources, map, sug
             open={open}
             onClose={() => setOpen(false)}
             onRetry={retry}
+            retryError={retryError}
           />
         </>
       )}

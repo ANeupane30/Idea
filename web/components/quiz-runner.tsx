@@ -157,7 +157,25 @@ export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props)
   }
 
   if (state.kind === "results") {
-    return <Results goalId={goalId} mode={mode} title={title} summary={state.summary} overview={overview} />;
+    return (
+      <Results
+        goalId={goalId}
+        mode={mode}
+        title={title}
+        summary={state.summary}
+        overview={overview}
+        // The review quiz's own page: start a new one here (a link to this URL would do nothing).
+        onRestart={
+          mode === "review"
+            ? () => {
+                quizId.current = null;
+                setState({ kind: "loading" });
+                void start();
+              }
+            : undefined
+        }
+      />
+    );
   }
 
   const { q, chosen, result } = state;
@@ -210,6 +228,7 @@ export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props)
                 disabled={!!result}
                 onChange={() => setState({ ...state, chosen: i })}
                 aria-label={option}
+                aria-describedby={isRight || isWrongPick ? `${groupId}-state-${i}` : undefined}
                 className="peer absolute inset-0 z-10 m-0 cursor-pointer appearance-none opacity-0 disabled:cursor-default"
               />
               <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-full text-label-l ${avatar}`}>
@@ -219,13 +238,13 @@ export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props)
               {isWrongPick && (
                 <span className="flex shrink-0 items-center gap-1 text-label-m">
                   <Icon name="close" size={18} />
-                  Not quite · your answer
+                  <span id={`${groupId}-state-${i}`}>Not quite · your answer</span>
                 </span>
               )}
               {isRight && (
                 <span className="flex shrink-0 items-center gap-1 text-label-m">
                   <Icon name="check" size={18} />
-                  Correct answer
+                  <span id={`${groupId}-state-${i}`}>Correct answer</span>
                 </span>
               )}
             </label>
@@ -238,7 +257,7 @@ export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props)
           <p role="status" className="sr-only">
             {result.correct
               ? "Correct!"
-              : `You chose ${LETTERS[chosen ?? 0]}. Not quite. The correct answer is ${right}.`}
+              : `You chose ${LETTERS[chosen ?? 0]}. Not quite. The correct answer is ${right}: ${q.options[result.correct_index]}.`}
           </p>
           {result.correct && (
             <p aria-hidden className="mt-4 flex items-center gap-1.5 text-title-m text-on-positive">
@@ -349,12 +368,14 @@ function Results({
   title,
   summary,
   overview,
+  onRestart,
 }: {
   goalId: string;
   mode: "subtopic" | "review";
   title: string;
   summary: QuizSummary;
   overview: React.ReactNode;
+  onRestart?: () => void;
 }) {
   const correct = summary.topics.reduce((n, t) => n + t.correct, 0);
   const total = summary.topics.reduce((n, t) => n + t.total, 0);
@@ -414,10 +435,17 @@ function Results({
         <Link href={`/goals/${goalId}`} className={button("text")}>
           Back to map
         </Link>
-        <Link href={`/goals/${goalId}/review/quiz`} className={button("filled")}>
-          <Icon name="quiz" />
-          Start review quiz
-        </Link>
+        {onRestart ? (
+          <button type="button" onClick={onRestart} className={button("filled")}>
+            <Icon name="quiz" />
+            Start review quiz
+          </button>
+        ) : (
+          <Link href={`/goals/${goalId}/review/quiz`} className={button("filled")}>
+            <Icon name="quiz" />
+            Start review quiz
+          </Link>
+        )}
       </div>
     </div>
   );

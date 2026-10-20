@@ -19,13 +19,15 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onRetry: (id: string) => void;
+  /** Why the last "Try again" failed (shown here, since the page behind is inert). */
+  retryError?: string | null;
 };
 
 /**
  * Add a link or a PDF, and watch each one being added: the sources still being processed or that
  * failed, plus those that finished while the dialog was open.
  */
-export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry }: Props) {
+export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry, retryError }: Props) {
   const router = useRouter();
   const ref = useRef<HTMLDialogElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -190,6 +192,7 @@ export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry }
           <AddingRow key={s.id} source={s} onRetry={() => onRetry(s.id)} />
         ))}
       </ul>
+      {retryError && <FormError error={retryError} className="mt-3" />}
 
       <div className="mt-6 flex justify-end">
         <button type="button" onClick={onClose} className={button("text")}>

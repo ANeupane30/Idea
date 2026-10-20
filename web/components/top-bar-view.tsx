@@ -30,7 +30,7 @@ export function TopBarView({
         </Link>
       )}
       <h1 className="min-w-0 flex-1 text-title-l text-on-surface [overflow-wrap:anywhere]">{title}</h1>
-      {actions && <div className="flex max-w-full items-center max-sm:w-full max-sm:pl-14">{actions}</div>}
+      {actions && <div className="flex max-w-full items-center max-sm:w-full max-sm:px-2">{actions}</div>}
     </header>
   );
 }

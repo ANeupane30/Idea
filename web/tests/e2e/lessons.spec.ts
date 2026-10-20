@@ -160,3 +160,22 @@ test("guest lesson limit", async ({ page }) => {
   await expect(alert).toHaveText("Sign up free to get more lessons.", { timeout: 30_000 });
   await expect(alert.getByRole("link", { name: "Sign up free" })).toHaveAttribute("href", "/sign-up");
 });
+
+for (const width of [320, 375]) {
+  test.describe(`switcher at ${width}px`, () => {
+    test.use({ viewport: { width, height: 800 } });
+    test("format switcher fits without clipping", async ({ page }) => {
+      await mapWithArticle(page);
+      await openLessonByUrl(page, "Joining tables");
+      await chooseFormat(page, "Visual");
+      const group = page.getByRole("group", { name: "Show me this as:" });
+      await expect(group).toBeVisible({ timeout: 30_000 });
+      const { scrollWidth, clientWidth } = await group.evaluate((el) => ({
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+      }));
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    });
+  });
+}
