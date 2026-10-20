@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { connection } from "next/server";
+import { AppShell } from "@/components/app-shell";
 import { GoalLists, NewGoalForm } from "@/components/goals-ui";
 import { createClient } from "@/lib/supabase/server";
 import { MAP_STATUS_TEXT } from "@/lib/validation";
@@ -29,17 +30,19 @@ async function Lists() {
 
 export default function GoalsPage() {
   return (
-    <main className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
-      <h1 className="text-2xl font-semibold">Your goals</h1>
-      <section aria-labelledby="new-h" className="flex flex-col gap-2">
-        <h2 id="new-h" className="text-lg font-semibold">
-          New goal
-        </h2>
-        <NewGoalForm action={createGoal} />
-      </section>
-      <Suspense fallback={<p>Loading...</p>}>
-        <Lists />
-      </Suspense>
-    </main>
+    <AppShell>
+      <main className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8 sm:px-6">
+        <h1 className="text-headline-m text-on-surface">Your goals</h1>
+        <section aria-labelledby="new-h" className="flex flex-col gap-4 rounded-2xl bg-surface-container-low p-6">
+          <h2 id="new-h" className="text-title-l text-on-surface">
+            New goal
+          </h2>
+          <NewGoalForm action={createGoal} />
+        </section>
+        <Suspense fallback={<p className="text-on-surface-variant">Loading...</p>}>
+          <Lists />
+        </Suspense>
+      </main>
+    </AppShell>
   );
 }

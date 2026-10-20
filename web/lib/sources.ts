@@ -82,6 +82,22 @@ export type SourceRow = {
   relevance_reason: string | null;
 };
 
+/** The four stages the Add source dialog shows. */
+export const STAGE_TEXT = ["Fetching", "Reading", "Matching to your topics", "Ready"] as const;
+
+const STEP_STAGE: Record<Exclude<SourceStep, "queued">, 0 | 1 | 2> = {
+  extracting: 0,
+  chunking: 1,
+  embedding: 1,
+  mapping: 2,
+};
+
+/** Which stage a source is at; a failed source keeps the stage it failed at. */
+export function stageOf(row: Pick<SourceRow, "status" | "step">): { stage: 0 | 1 | 2 | 3; failed: boolean } {
+  if (row.status === "ready") return { stage: 3, failed: false };
+  return { stage: row.step ? STEP_STAGE[row.step] : 0, failed: row.status === "failed" };
+}
+
 export const SOURCE_COLUMNS =
   "id, type, url_or_file, file_name, title, status, step, delayed, error, relevance_label, relevance_reason";
 

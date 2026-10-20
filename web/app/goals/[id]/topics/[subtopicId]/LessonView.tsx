@@ -1,10 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { FormatCards } from "@/components/format-cards";
 import { FormError } from "@/components/form-error";
 import { LessonFeedback } from "@/components/lesson-feedback";
 import { LessonSections } from "@/components/lesson-sections";
+import { TopBarView } from "@/components/top-bar-view";
+import { button } from "@/components/ui/buttons";
+import { Icon } from "@/components/ui/icon";
+import { GENERIC_ERROR, type ActionResult } from "@/lib/validation";
 import {
   FORMAT_TEXT,
   FORMATS,
@@ -22,6 +28,10 @@ import { chooseFormat, logFormatSwitch, sendFeedback } from "./lesson-actions";
 type Live = { status: "writing" | "error"; code?: string; sections: Section[]; sources: LessonSource[] };
 
 type Props = {
+  userId: string | null;
+  /** "<n> <title>" for main topics. */
+  title: string;
+  summary: string | null;
   goalId: string;
   goalTitle: string;
   subtopic: { id: string; title: string };
@@ -31,14 +41,25 @@ type Props = {
   hasSources: boolean;
 };
 
-export function LessonView({ goalId, goalTitle, subtopic, preferredFormat, formatChosen, initialLessons, hasSources }: Props) {
-  const chooserId = useId();
+export function LessonView({
+  userId,
+  title,
+  summary,
+  goalId,
+  goalTitle,
+  subtopic,
+  preferredFormat,
+  formatChosen,
+  initialLessons,
+  hasSources,
+}: Props) {
   const [chosen, setChosen] = useState(formatChosen);
   const [pick, setPick] = useState<Format>(preferredFormat);
   const [format, setFormat] = useState<Format>(preferredFormat);
   const [lessons, setLessons] = useState(initialLessons);
   const [live, setLive] = useState<Partial<Record<Format, Live>>>({});
   const started = useRef(new Set<Format>());
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
 
   const start = useCallback(
     async (fmt: Format, refresh = false) => {
@@ -110,132 +131,207 @@ export function LessonView({ goalId, goalTitle, subtopic, preferredFormat, forma
     void start(format);
   }
 
+  const mapHref = `/goals/${goalId}`;
+  const lesson = lessons[format];
+  const state = live[format];
+  const showSwitcher = chosen && hasSources;
+
+  let body: React.ReactNode;
   if (!hasSources) {
-    return (
-      <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <p className="text-zinc-800 dark:text-zinc-200">{LESSON_ERROR_TEXT.no_sources}</p>
+    body = (
+      <div className="rounded-2xl bg-surface-container-high p-5">
+        <p className="text-body-l text-on-surface">{LESSON_ERROR_TEXT.no_sources}</p>
         <div className="mt-3">
           <SearchLinks query={searchQuery(goalTitle, subtopic.title)} />
         </div>
       </div>
     );
-  }
-
-  if (!chosen) {
-    return (
-      <form
-        className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5 sm:p-6 dark:border-zinc-800 dark:bg-zinc-900"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          await chooseFormat(pick);
+  } else if (!chosen) {
+    body = (
+      <FormatChooser
+        mapHref={mapHref}
+        pick={pick}
+        onPick={setPick}
+        onContinue={async () => {
+          const result = await chooseFormat(pick);
+          if (!result.ok) return result;
           setFormat(pick);
           setChosen(true);
+          return result;
         }}
-      >
-        <h2 id={chooserId} className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-          How do you like to learn?
-        </h2>
-        <div role="radiogroup" aria-labelledby={chooserId} className="mt-4 grid gap-3 sm:grid-cols-2">
-          {FORMATS.map((f) => (
-            <label
-              key={f}
-              className="flex cursor-pointer gap-3 rounded-xl border border-zinc-200 p-4 has-checked:border-indigo-500 has-checked:bg-indigo-50 has-checked:ring-1 has-checked:ring-indigo-500 dark:border-zinc-800 dark:has-checked:border-indigo-400 dark:has-checked:bg-indigo-400/10"
-            >
-              <input
-                type="radio"
-                name="format"
-                value={f}
-                checked={pick === f}
-                onChange={() => setPick(f)}
-                className="mt-1 accent-indigo-600"
-              />
-              <span>
-                <span className="block font-semibold text-zinc-900 dark:text-zinc-50">{FORMAT_TEXT[f].label}</span>
-                <span className="block text-sm text-zinc-600 dark:text-zinc-400">{FORMAT_TEXT[f].hint}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-        <button
-          type="submit"
-          className="mt-5 rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-zinc-950"
-        >
-          Show my lesson
-        </button>
-      </form>
+      />
+    );
+  } else if (lesson && !state) {
+    body = (
+      <>
+        {lesson.stale && !dismissed.has(lesson.id) && (
+          <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-primary-container py-2 pr-2 pl-4 text-body-m text-on-primary-container">
+            <Icon name="update" />
+            <span className="flex-1">New sources available. Refresh lesson?</span>
+            <span className="flex">
+              <button
+                type="button"
+                onClick={() => setDismissed((d) => new Set([...d, lesson.id]))}
+                className={button("text", "min-h-10 text-on-primary-container")}
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={() => void start(format, true)}
+                className={button("text", "min-h-10 text-on-primary-container")}
+              >
+                Refresh
+              </button>
+            </span>
+          </div>
+        )}
+        <LessonSections sections={lesson.body.sections} sources={lesson.body.sources} />
+        <LessonFeedback key={lesson.id} lessonId={lesson.id} send={sendFeedback}>
+          <Link href={`/goals/${goalId}/topics/${subtopic.id}/quiz`} className={button("filled")}>
+            <Icon name="quiz" />
+            Quiz me on this
+          </Link>
+        </LessonFeedback>
+      </>
+    );
+  } else if (state?.status === "error") {
+    body = (
+      <div className="flex flex-col items-start gap-3">
+        <FormError error={LESSON_ERROR_TEXT[state.code ?? "failed"] ?? LESSON_ERROR_TEXT.failed} />
+        {state.code !== "not_found" && state.code !== "no_sources" && (
+          <button type="button" onClick={retry} className={button("outlined")}>
+            Try again
+          </button>
+        )}
+      </div>
+    );
+  } else {
+    body = (
+      <div className="flex flex-col gap-6">
+        <p role="status" className="flex items-center gap-2 text-body-m text-on-surface-variant">
+          <Icon name="progress_activity" size={18} className="text-primary motion-safe:animate-spin" />
+          Writing your lesson…
+        </p>
+        {state && state.sections.length > 0 && <LessonSections sections={state.sections} sources={state.sources} />}
+      </div>
     );
   }
 
-  const lesson = lessons[format];
-  const state = live[format];
+  return (
+    <>
+      <TopBarView
+        userId={userId}
+        back={{ href: mapHref, label: "Back to your map" }}
+        title={title}
+        actions={
+          showSwitcher && (
+            <div
+              role="group"
+              aria-label="Show me this as:"
+              className="flex overflow-hidden rounded-full border border-outline max-sm:w-full"
+            >
+              {FORMATS.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  aria-pressed={f === format}
+                  onClick={() => switchTo(f)}
+                  className="flex min-h-10 flex-1 items-center justify-center gap-1.5 border-l border-outline px-3 text-label-l text-on-surface first:border-l-0 hover:bg-on-surface/8 focus-visible:outline-3 focus-visible:-outline-offset-3 focus-visible:outline-primary aria-pressed:bg-secondary-container aria-pressed:text-on-secondary-container max-sm:px-2 sm:px-4 [&>svg]:hidden sm:aria-pressed:[&>svg]:block"
+                >
+                  <Icon name="check" size={18} />
+                  {FORMAT_TEXT[f].label}
+                </button>
+              ))}
+            </div>
+          )
+        }
+      />
+      <main className="mx-auto w-full max-w-[65ch] px-4 pt-4 pb-16">
+        {summary && <p className="mb-6 text-body-l text-on-surface-variant">{summary}</p>}
+        {body}
+      </main>
+    </>
+  );
+}
+
+/** First visit: pick a format in a dialog. Closing it (or Esc) goes back to the map. */
+function FormatChooser({
+  mapHref,
+  pick,
+  onPick,
+  onContinue,
+}: {
+  mapHref: string;
+  pick: Format;
+  onPick: (f: Format) => void;
+  onContinue: () => Promise<ActionResult>;
+}) {
+  const router = useRouter();
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) {
+      dialog.showModal();
+      // Start on the selected format, not the close button.
+      dialog.querySelector<HTMLInputElement>("input[type=radio]:checked")?.focus();
+    }
+  }, []);
 
   return (
-    <div className="mt-6">
-      <div role="group" aria-label="Show me this as:" className="flex flex-wrap items-center gap-2">
-        <span aria-hidden className="text-sm text-zinc-600 dark:text-zinc-400">
-          Show me this as:
-        </span>
-        {FORMATS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            aria-pressed={f === format}
-            onClick={() => switchTo(f)}
-            className="rounded-full border px-3 py-1 text-sm font-medium transition aria-pressed:border-indigo-600 aria-pressed:bg-indigo-600 aria-pressed:text-white border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:aria-pressed:border-indigo-500 dark:aria-pressed:bg-indigo-500"
-          >
-            {FORMAT_TEXT[f].label}
+    <dialog
+      ref={ref}
+      aria-labelledby={titleId}
+      onCancel={(e) => {
+        e.preventDefault();
+        router.push(mapHref);
+      }}
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto rounded-[28px] bg-surface-container-high p-6 text-on-surface motion-safe:open:animate-dialog-in"
+    >
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setSaving(true);
+          setError(null);
+          try {
+            const result = await onContinue();
+            if (!result.ok) setError(result.error);
+          } catch {
+            setError(GENERIC_ERROR);
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 id={titleId} className="text-headline-s">
+              How do you like to learn?
+            </h2>
+            <p className="mt-1 text-body-m text-on-surface-variant">We&apos;ll shape every lesson this way.</p>
+          </div>
+          <Link href={mapHref} aria-label="Close" className={button("icon", "-mr-3 -mt-1")}>
+            <Icon name="close" size={24} />
+          </Link>
+        </div>
+        <div className="mt-6">
+          <FormatCards name="format" labelledBy={titleId} value={pick} onChange={onPick} />
+        </div>
+        {error && <FormError error={error} className="mt-4" />}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <p className="flex items-center gap-1.5 text-body-m text-on-surface-variant">
+            <Icon name="swap_horiz" size={18} />
+            You can switch anytime
+          </p>
+          <button type="submit" disabled={saving} className={button("filled")}>
+            Continue
           </button>
-        ))}
-      </div>
-
-      <div className="mt-6">
-        {lesson && !state ? (
-          <>
-            {lesson.stale && (
-              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
-                <span>New sources available. Refresh lesson?</span>
-                <button
-                  type="button"
-                  onClick={() => void start(format, true)}
-                  className="rounded-lg bg-amber-600 px-3 py-1 font-semibold text-white hover:bg-amber-500 dark:bg-amber-500 dark:text-zinc-950"
-                >
-                  Refresh lesson
-                </button>
-              </div>
-            )}
-            <LessonSections sections={lesson.body.sections} sources={lesson.body.sources} />
-            <LessonFeedback key={lesson.id} lessonId={lesson.id} send={sendFeedback} />
-            <Link
-              href={`/goals/${goalId}/topics/${subtopic.id}/quiz`}
-              className="mt-6 inline-flex rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-zinc-950"
-            >
-              Quiz me on this
-            </Link>
-          </>
-        ) : state?.status === "error" ? (
-          <div className="flex flex-col items-start gap-3">
-            <FormError error={LESSON_ERROR_TEXT[state.code ?? "failed"] ?? LESSON_ERROR_TEXT.failed} />
-            {state.code !== "not_found" && state.code !== "no_sources" && (
-              <button
-                type="button"
-                onClick={retry}
-                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-              >
-                Try again
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <p role="status" className="text-sm text-zinc-600 dark:text-zinc-400">
-              Writing your lesson…
-            </p>
-            {state && state.sections.length > 0 && (
-              <LessonSections sections={state.sections} sources={state.sources} />
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+        </div>
+      </form>
+    </dialog>
   );
 }

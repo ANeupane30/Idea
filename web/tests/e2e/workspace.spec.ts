@@ -1,74 +1,59 @@
 import { expect, test, type Page } from "@playwright/test";
 import { guestBuildsMap } from "./helpers";
 
-const panel = (page: Page, name: "Sources" | "Suggestions") => page.getByRole("complementary", { name });
-const toggle = (page: Page, name: "Sources" | "Suggestions") =>
-  page.getByRole("button", { name: `${name} panel`, exact: true });
 const map = (page: Page) => page.getByRole("navigation", { name: "Topic map" });
+const noSideScroll = async (page: Page, width: number) =>
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 
 test.describe("wide screen", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test("sources left, map in the middle, suggestions right", async ({ page }) => {
+  test("map on the left, sources and suggestions on the right", async ({ page }) => {
     await guestBuildsMap(page);
-    await expect(panel(page, "Sources")).toBeVisible();
-    await expect(panel(page, "Suggestions")).toBeVisible();
-    const left = (await panel(page, "Sources").boundingBox())!;
-    const mid = (await map(page).boundingBox())!;
-    const right = (await panel(page, "Suggestions").boundingBox())!;
-    expect(left.x + left.width).toBeLessThanOrEqual(mid.x);
-    expect(mid.x + mid.width).toBeLessThanOrEqual(right.x);
-    await expect(toggle(page, "Sources")).toHaveAttribute("aria-expanded", "true");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1440);
+    const mapBox = (await map(page).boundingBox())!;
+    const sources = (await page.getByRole("region", { name: "Sources" }).boundingBox())!;
+    expect(mapBox.x).toBeLessThan(sources.x);
+    expect(sources.x).toBeGreaterThan(1440 / 2);
+    // Every topic card is fully visible: the map isn't squeezed into a scroll box.
+    const { scrollWidth, clientWidth } = await map(page).evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+    await noSideScroll(page, 1440);
   });
 
-  test("panels toggle and the choice is remembered", async ({ page }) => {
-    await guestBuildsMap(page);
-    const before = (await map(page).boundingBox())!;
-    await toggle(page, "Sources").click();
-    await expect(panel(page, "Sources")).toBeHidden();
-    await expect(toggle(page, "Sources")).toHaveAttribute("aria-expanded", "false");
-    await toggle(page, "Suggestions").click();
-    await expect(panel(page, "Suggestions")).toBeHidden();
-    const after = (await map(page).boundingBox())!;
-    expect(after.x).toBeLessThan(before.x); // the map moves into the freed space
-
-    await page.reload();
-    await expect(map(page)).toBeVisible();
-    await expect(panel(page, "Sources")).toBeHidden();
-    await expect(panel(page, "Suggestions")).toBeHidden();
-
-    await toggle(page, "Sources").click();
-    await expect(panel(page, "Sources")).toBeVisible();
-    await expect(page.getByLabel("Add a link")).toBeVisible();
-  });
-
-  test("topic details open over the map without moving it", async ({ page }) => {
-    await guestBuildsMap(page);
-    const before = (await map(page).boundingBox())!;
-    await map(page).getByRole("button", { name: /^2 / }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    const after = (await map(page).boundingBox())!;
-    expect(after.width).toBe(before.width);
+  test("long titles wrap", async ({ page }) => {
+    await guestBuildsMap(page, `Learn ${"very ".repeat(22)}long things`.slice(0, 120));
+    await noSideScroll(page, 1440);
   });
 });
 
 test.describe("phone", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
-  test("panels start closed and open as drawers", async ({ page }) => {
+  test("columns stack under the map", async ({ page }) => {
     await guestBuildsMap(page);
-    await expect(panel(page, "Sources")).toBeHidden();
-    await expect(panel(page, "Suggestions")).toBeHidden();
-    await toggle(page, "Sources").click();
-    await expect(panel(page, "Sources")).toBeVisible();
-    await expect(page.getByLabel("Add a link")).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(panel(page, "Sources")).toBeHidden();
-    await toggle(page, "Suggestions").click();
-    await expect(panel(page, "Suggestions")).toBeVisible();
-    await panel(page, "Suggestions").getByRole("button", { name: "Close" }).click();
-    await expect(panel(page, "Suggestions")).toBeHidden();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+    const mapBox = (await map(page).boundingBox())!;
+    const sources = (await page.getByRole("region", { name: "Sources" }).boundingBox())!;
+    expect(sources.y).toBeGreaterThanOrEqual(mapBox.y + mapBox.height);
+    await noSideScroll(page, 375);
   });
+
+  test("long titles wrap", async ({ page }) => {
+    await guestBuildsMap(page, `Learn ${"very ".repeat(22)}long things`.slice(0, 120));
+    await noSideScroll(page, 375);
+  });
+});
+
+test("archived goal has no add controls", async ({ page }) => {
+  await guestBuildsMap(page);
+  const url = page.url();
+  await page.goto("/goals");
+  await page.getByRole("region", { name: "Active" }).getByRole("button", { name: "Archive" }).click();
+  await expect(page.getByRole("region", { name: "Archived" }).getByText("Learn SQL")).toBeVisible();
+  await page.goto(url);
+  await expect(map(page)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add source" })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Sources" })).toBeVisible();
 });

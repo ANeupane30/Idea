@@ -22,7 +22,8 @@ describe("LessonSections", () => {
       expect(a.getAttribute("href") ?? "").not.toMatch(/^javascript:/i);
     }
     expect(getByRole("heading", { name: "Joins" })).toBeTruthy();
-    const cite = getByRole("link", { name: "[1]" });
+    const cite = getByRole("link", { name: "Source 1: SQL guide" });
+    expect(cite.textContent).toBe("1");
     expect(cite.getAttribute("href")).toBe("https://e.com/a#:~:text=Joins");
     expect(cite.getAttribute("rel")).toBe("noopener noreferrer");
   });
@@ -34,7 +35,8 @@ describe("LessonSections", () => {
         sources={[{ n: 1, title: "notes.pdf", type: "pdf", href: null, label: "page 3" }]}
       />,
     );
-    expect(container.textContent).toContain("[1] notes.pdf, page 3");
+    expect(container.textContent).toContain("notes.pdf · page 3");
+    expect(container.textContent).toContain("Source 1: notes.pdf");
     expect(container.querySelector("a")).toBeNull();
   });
 });

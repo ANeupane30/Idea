@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mapWithArticle, openLesson } from "./helpers";
+import { addLink, mapWithArticle, openLesson, openLessonByUrl } from "./helpers";
 
 const ARTICLE = "http://127.0.0.1:8765/sql-article.html";
 
@@ -11,7 +11,7 @@ const lesson = (page: Page) => page.getByLabel("Lesson", { exact: true });
 async function chooseFormat(page: Page, label: string) {
   await expect(page.getByRole("heading", { name: "How do you like to learn?" })).toBeVisible();
   await page.getByRole("radio", { name: new RegExp(`^${label}`) }).check();
-  await page.getByRole("button", { name: "Show my lesson" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
 }
 
 test("first lesson asks for a format", async ({ page }) => {
@@ -20,8 +20,19 @@ test("first lesson asks for a format", async ({ page }) => {
   await chooseFormat(page, "Visual");
   await expect(lesson(page).locator("section")).toHaveCount(2, { timeout: 30_000 });
   await expect(lesson(page).getByRole("figure", { name: "Diagram" }).first().locator("svg")).toBeVisible();
-  const cite = lesson(page).getByRole("link", { name: "[1]" }).first();
+  const cite = lesson(page).getByRole("link", { name: /^Source 1:/ }).first();
   await expect(cite).toHaveAttribute("href", new RegExp(`^${ARTICLE.replace(/[.?]/g, "\\$&")}`));
+});
+
+test("format chooser closes back to the map", async ({ page }) => {
+  await mapWithArticle(page);
+  const mapUrl = page.url();
+  await openLesson(page, "Joining tables");
+  const chooser = page.getByRole("dialog", { name: "How do you like to learn?" });
+  await expect(chooser).toBeVisible();
+  await expect(chooser.getByRole("radio", { name: /^Visual Diagrams first, with short notes\./ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(mapUrl);
 });
 
 test("stored lesson loads without writing again", async ({ page }) => {
@@ -65,9 +76,10 @@ test("unsafe markdown is inert", async ({ page }) => {
 
 test("topic without sources", async ({ page }) => {
   await mapWithArticle(page);
-  await openLesson(page, "Indexes and query performance");
+  // A gap topic's card offers "Add source" instead of a lesson link.
+  await openLessonByUrl(page, "Indexes and query performance");
   await expect(page.getByText("None of your sources cover this topic yet. Add one to get a lesson.")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Search the web" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Search the web for / })).toBeVisible();
 });
 
 test("another user's topic is 404", async ({ page, browser }) => {
@@ -91,9 +103,8 @@ test("stale lesson can be refreshed", async ({ page }) => {
   const lessonUrl = page.url();
 
   // A second source covering the topic makes the lesson out of date.
-  await page.getByRole("link", { name: "← Back to your map" }).click();
-  await page.getByLabel("Add a link").fill(`${ARTICLE}?n=2`);
-  await page.getByRole("button", { name: "Add link" }).click();
+  await page.getByRole("link", { name: "Back to your map", exact: true }).click();
+  await addLink(page, `${ARTICLE}?n=2`);
   const rows = page.getByRole("list", { name: "Your sources" }).getByRole("listitem");
   // Both rows ready means the new source has been matched (and the lesson marked stale).
   await expect(rows).toHaveCount(2);
@@ -102,7 +113,13 @@ test("stale lesson can be refreshed", async ({ page }) => {
 
   await page.goto(lessonUrl);
   await expect(page.getByText("New sources available. Refresh lesson?")).toBeVisible();
-  await page.getByRole("button", { name: "Refresh lesson" }).click();
+  // Dismiss hides it for this visit only; the lesson is still out of date.
+  await page.getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.getByText("New sources available. Refresh lesson?")).toHaveCount(0);
+  await expect(lesson(page).locator("section")).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByText("New sources available. Refresh lesson?")).toBeVisible();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByText("New sources available. Refresh lesson?")).toHaveCount(0);
   await expect(lesson(page).locator("section")).toHaveCount(2, { timeout: 30_000 });
   await page.reload();
@@ -114,8 +131,8 @@ test("feedback", async ({ page }) => {
   await openLesson(page, "Joining tables");
   await chooseFormat(page, "Visual");
   await expect(lesson(page).locator("section")).toHaveCount(2, { timeout: 30_000 });
-  await expect(page.getByText("Was this lesson helpful?")).toBeVisible();
-  await page.getByRole("button", { name: "Yes" }).click();
+  await expect(page.getByText("Was this helpful?")).toBeVisible();
+  await page.getByRole("button", { name: "Helpful", exact: true }).click();
   await expect(page.getByText("Thanks for the feedback.")).toBeVisible();
 
   await page.getByRole("group", { name: "Show me this as:" }).getByRole("button", { name: "Summary" }).click();
@@ -143,3 +160,22 @@ test("guest lesson limit", async ({ page }) => {
   await expect(alert).toHaveText("Sign up free to get more lessons.", { timeout: 30_000 });
   await expect(alert.getByRole("link", { name: "Sign up free" })).toHaveAttribute("href", "/sign-up");
 });
+
+for (const width of [320, 375]) {
+  test.describe(`switcher at ${width}px`, () => {
+    test.use({ viewport: { width, height: 800 } });
+    test("format switcher fits without clipping", async ({ page }) => {
+      await mapWithArticle(page);
+      await openLessonByUrl(page, "Joining tables");
+      await chooseFormat(page, "Visual");
+      const group = page.getByRole("group", { name: "Show me this as:" });
+      await expect(group).toBeVisible({ timeout: 30_000 });
+      const { scrollWidth, clientWidth } = await group.evaluate((el) => ({
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+      }));
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    });
+  });
+}

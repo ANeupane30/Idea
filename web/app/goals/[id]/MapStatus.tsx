@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { button, field } from "@/components/ui/buttons";
+import { Icon } from "@/components/ui/icon";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { answerClarification, retryTopicMap } from "../actions";
 
@@ -61,51 +63,54 @@ export function MapStatus({ goal, children }: { goal: MapGoal; children?: React.
 
   if (goal.map_status === "pending") {
     return (
-      <div role="status" className="mt-4">
-        <p>Building your topic map…</p>
-        {delayed && <p className="text-sm text-zinc-600">Processing is delayed. We&apos;ll keep trying.</p>}
+      <div role="status" className="mt-6 text-body-l text-on-surface">
+        <p className="flex items-center gap-2">
+          <Icon name="progress_activity" className="text-primary motion-safe:animate-spin" />
+          Building your topic map…
+        </p>
+        {delayed && <p className="mt-1 text-body-m text-on-surface-variant">Processing is delayed. We&apos;ll keep trying.</p>}
       </div>
     );
   }
 
   if (goal.map_status === "clarifying") {
     return (
-      <div className="mt-4">
-        <p className="font-medium">{goal.clarifying_question}</p>
+      <div className="mt-6 max-w-xl rounded-2xl bg-surface-container-high p-5">
+        <p className="text-title-m text-on-surface">{goal.clarifying_question}</p>
         {archived ? (
-          <p className="mt-2 text-sm text-zinc-600">Unarchive this goal to answer.</p>
+          <p className="mt-2 text-body-m text-on-surface-variant">Unarchive this goal to answer.</p>
         ) : (
           <form
-            className="mt-2 flex flex-col gap-2"
+            className="mt-4 flex flex-col gap-3"
             onSubmit={(e) => {
               e.preventDefault();
               run(() => answerClarification(goal.id, answer));
             }}
           >
-            <label className="flex flex-col gap-1 text-sm">
+            <label className="flex flex-col gap-1.5 text-label-l text-on-surface-variant">
               Your answer
               <textarea
                 value={answer}
                 onChange={(e) => setAnswer(e.target.value)}
                 maxLength={1000}
                 rows={3}
-                className="rounded border border-zinc-400 p-2"
+                className={`${field()} resize-y`}
               />
             </label>
-            <button type="submit" disabled={isPending} className="self-start rounded bg-zinc-900 px-3 py-1 text-white">
+            <button type="submit" disabled={isPending} className={button("filled", "self-start")}>
               Submit answer
             </button>
           </form>
         )}
-        {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+        {error && <p role="alert" className="mt-2 text-body-m text-on-negative">{error}</p>}
       </div>
     );
   }
 
   if (goal.map_status === "failed") {
     return (
-      <div className="mt-4">
-        <p role="alert" className="text-red-700">
+      <div className="mt-6">
+        <p role="alert" className="text-body-l text-on-negative">
           {goal.map_error ?? "We couldn't build your topic map."}
         </p>
         {!archived && (
@@ -113,12 +118,12 @@ export function MapStatus({ goal, children }: { goal: MapGoal; children?: React.
             type="button"
             disabled={isPending}
             onClick={() => run(() => retryTopicMap(goal.id))}
-            className="mt-2 rounded border border-zinc-400 px-3 py-1"
+            className={button("outlined", "mt-3")}
           >
             Try again
           </button>
         )}
-        {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+        {error && <p role="alert" className="mt-2 text-body-m text-on-negative">{error}</p>}
       </div>
     );
   }

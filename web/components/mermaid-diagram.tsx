@@ -28,7 +28,7 @@ export function MermaidDiagram({ code }: { code: string }) {
 
   if (failed) return null;
   return (
-    <figure aria-label="Diagram" className="mt-4 overflow-x-auto rounded-xl bg-zinc-50 p-4 dark:bg-zinc-950/60">
+    <figure aria-label="Diagram" className="mt-4 overflow-x-auto rounded-2xl border border-outline-variant p-4">
       <div ref={ref} className="flex justify-center [&_svg]:h-auto [&_svg]:max-w-full" />
     </figure>
   );

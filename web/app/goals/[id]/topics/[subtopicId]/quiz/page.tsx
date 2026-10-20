@@ -1,10 +1,12 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { QuizRunner } from "@/components/quiz-runner";
+import { ReviewOverview } from "@/components/review-overview";
 import { QUIZ_ERROR_TEXT } from "@/lib/quiz";
+import { TopBar } from "@/components/top-bar";
 import { createClient } from "@/lib/supabase/server";
+import { loadReview } from "../../../review/load";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -26,25 +28,27 @@ async function TopicQuiz({ params }: { params: Promise<{ id: string; subtopicId:
       .limit(1),
   ]);
   if (!topic) notFound();
+  const { tree, rows } = await loadReview(id);
 
   return (
-    <main className="mx-auto w-full max-w-2xl p-4 sm:p-6">
-      <Link
-        href={`/goals/${id}/topics/${subtopicId}`}
-        className="text-sm font-medium text-zinc-600 underline-offset-4 hover:text-zinc-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
-      >
-        ← Back to the lesson
-      </Link>
-      <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">Quiz</p>
-      <h1 className="mt-1 text-2xl font-semibold text-zinc-900 [overflow-wrap:anywhere] dark:text-zinc-50">{topic.title}</h1>
+    <>
+    <TopBar close={{ href: `/goals/${id}/topics/${subtopicId}`, label: "Close quiz" }} title={`${topic.title} quiz`} />
+    <main className="mx-auto w-full max-w-2xl px-4 pb-10 sm:px-6">
       {(covering ?? []).length > 0 ? (
-        <QuizRunner goalId={id} subtopicId={subtopicId} mode="subtopic" />
+        <QuizRunner
+          goalId={id}
+          subtopicId={subtopicId}
+          mode="subtopic"
+          title={`${topic.title} quiz`}
+          overview={<ReviewOverview goalId={id} tree={tree} rows={rows} />}
+        />
       ) : (
-        <p className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5 text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+        <p className="mt-6 rounded-2xl bg-surface-container-high p-5 text-body-l text-on-surface">
           {QUIZ_ERROR_TEXT.no_sources}
         </p>
       )}
     </main>
+    </>
   );
 }
 

@@ -2,12 +2,14 @@
 
 import { useId, useState, useTransition } from "react";
 import { FormError } from "@/components/form-error";
+import { button, field } from "@/components/ui/buttons";
+import { Icon } from "@/components/ui/icon";
 import type { ActionResult } from "@/lib/validation";
 
 type Send = (lessonId: string, input: { rating?: "up" | "down"; reportText?: string }) => Promise<ActionResult>;
 
-/** Thumbs up/down and "Report an error" for one lesson. */
-export function LessonFeedback({ lessonId, send }: { lessonId: string; send: Send }) {
+/** Thumbs up/down and "Report an error" for one lesson; `children` (the next step) sits on the right. */
+export function LessonFeedback({ lessonId, send, children }: { lessonId: string; send: Send; children?: React.ReactNode }) {
   const reportId = useId();
   const [done, setDone] = useState(false);
   const [reporting, setReporting] = useState(false);
@@ -24,37 +26,49 @@ export function LessonFeedback({ lessonId, send }: { lessonId: string; send: Sen
     });
   }
 
-  if (done) {
-    return (
-      <p role="status" className="mt-6 text-sm text-zinc-600 dark:text-zinc-400">
-        Thanks for the feedback.
-      </p>
-    );
-  }
-
-  const button =
-    "rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800";
   return (
-    <div className="mt-6 flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-zinc-700 dark:text-zinc-300">Was this lesson helpful?</span>
-        <button type="button" className={button} disabled={pending} onClick={() => submit({ rating: "up" })}>
-          Yes
-        </button>
-        <button type="button" className={button} disabled={pending} onClick={() => submit({ rating: "down" })}>
-          No
-        </button>
-        <button
-          type="button"
-          className="text-sm font-medium text-zinc-600 underline-offset-4 hover:underline dark:text-zinc-400"
-          aria-expanded={reporting}
-          aria-controls={reportId}
-          onClick={() => setReporting((r) => !r)}
-        >
-          Report an error
-        </button>
+    <div className="mt-8 flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        {done ? (
+          <p role="status" className="text-body-m text-on-surface-variant">
+            Thanks for the feedback.
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="mr-1 text-body-m text-on-surface-variant">Was this helpful?</span>
+            <button
+              type="button"
+              aria-label="Helpful"
+              className={button("icon")}
+              disabled={pending}
+              onClick={() => submit({ rating: "up" })}
+            >
+              <Icon name="thumb_up" />
+            </button>
+            <button
+              type="button"
+              aria-label="Not helpful"
+              className={button("icon")}
+              disabled={pending}
+              onClick={() => submit({ rating: "down" })}
+            >
+              <Icon name="thumb_down" />
+            </button>
+            <button
+              type="button"
+              className={button("text")}
+              aria-expanded={reporting}
+              aria-controls={reportId}
+              onClick={() => setReporting((r) => !r)}
+            >
+              <Icon name="flag" />
+              Report an error
+            </button>
+          </div>
+        )}
+        {children}
       </div>
-      {reporting && (
+      {reporting && !done && (
         <form
           id={reportId}
           className="flex flex-col gap-2"
@@ -63,17 +77,17 @@ export function LessonFeedback({ lessonId, send }: { lessonId: string; send: Sen
             submit({ reportText: report });
           }}
         >
-          <label className="flex flex-col gap-1 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+          <label className="flex flex-col gap-1.5 text-label-l text-on-surface-variant">
             What&apos;s wrong?
             <textarea
               value={report}
               onChange={(e) => setReport(e.target.value)}
               maxLength={2000}
               rows={3}
-              className="rounded-lg border border-zinc-300 bg-white p-2 font-normal text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+              className={`${field()} resize-y`}
             />
           </label>
-          <button type="submit" className={`${button} self-start`} disabled={pending}>
+          <button type="submit" className={button("outlined", "self-start")} disabled={pending}>
             Send report
           </button>
         </form>

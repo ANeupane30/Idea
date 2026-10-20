@@ -8,8 +8,11 @@ import {
   LABEL_TEXT,
   linkSchema,
   searchQuery,
+  STAGE_TEXT,
+  stageOf,
   STEP_TEXT,
   type NodeCoverage,
+  type SourceRow,
 } from "@/lib/sources";
 import type { TreeNode } from "@/lib/topic-tree";
 import { dbErrorToMessage } from "@/lib/validation";
@@ -149,5 +152,26 @@ describe("isUploadPath", () => {
     expect(isUploadPath(uid, `${uid}/../x/22222222-2222-4222-8222-222222222222.pdf`)).toBe(false);
     expect(isUploadPath(uid, `${uid}/notes.pdf`)).toBe(false);
     expect(isUploadPath(uid, `33333333-3333-4333-8333-333333333333/22222222-2222-4222-8222-222222222222.pdf`)).toBe(false);
+  });
+});
+
+describe("stageOf", () => {
+  const row = (status: SourceRow["status"], step: SourceRow["step"]) => ({ status, step }) as SourceRow;
+  it.each([
+    ["queued", null, 0],
+    ["processing", "extracting", 0],
+    ["processing", "chunking", 1],
+    ["processing", "embedding", 1],
+    ["processing", "mapping", 2],
+    ["ready", null, 3],
+  ] as const)("%s/%s is stage %i", (status, step, stage) => {
+    expect(stageOf(row(status, step))).toEqual({ stage, failed: false });
+  });
+  it("a failure keeps the stage it failed at", () => {
+    expect(stageOf(row("failed", "embedding"))).toEqual({ stage: 1, failed: true });
+    expect(stageOf(row("failed", null))).toEqual({ stage: 0, failed: true });
+  });
+  it("names the stages", () => {
+    expect(STAGE_TEXT).toEqual(["Fetching", "Reading", "Matching to your topics", "Ready"]);
   });
 });

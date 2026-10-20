@@ -17,24 +17,25 @@ export function AddNext({
   const items = addNextItems(tree, coverage);
   if (items.length === 0) return null;
   return (
-    <section aria-labelledby={headingId} className="mt-10">
-      <h2 id={headingId} className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+    <section aria-labelledby={headingId} className="rounded-2xl bg-surface-container-high p-5">
+      <h2 id={headingId} className="text-title-l text-on-surface">
         What to add next
       </h2>
-      <ul className="mt-4 grid gap-3">
-        {items.map((node) => (
-          <li
-            key={node.id}
-            className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-          >
-            <p className="flex flex-wrap items-center gap-2 font-medium text-zinc-900 [overflow-wrap:anywhere] dark:text-zinc-50">
-              {node.title} <CoverageBadge state={coverage[node.id].state} />
-            </p>
-            <div className="mt-2">
+      <ul className="mt-3 flex flex-col divide-y divide-outline-variant">
+        {items.map((node) => {
+          const state = coverage[node.id].state;
+          return (
+            <li key={node.id} className="flex flex-col gap-1 py-3 first:pt-1 last:pb-0">
+              <p className="flex flex-wrap items-start gap-2 text-body-m text-on-surface [overflow-wrap:anywhere]">
+                <CoverageBadge state={state} />
+                <span className="min-w-0">
+                  {node.title} {state === "gap" ? "has no sources yet." : "has thin coverage."}
+                </span>
+              </p>
               <SearchLinks query={searchQuery(goalTitle, node.title)} />
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

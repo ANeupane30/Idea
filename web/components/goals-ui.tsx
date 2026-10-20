@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useState } from "react";
 import { useActionState } from "react";
 import { FormError } from "@/components/form-error";
+import { button, field } from "@/components/ui/buttons";
 import type { ActionResult } from "@/lib/validation";
 
 export type GoalRow = { id: string; title: string; status: string; statusText: string };
+
+const LABEL = "flex flex-col gap-1.5 text-label-l text-on-surface-variant";
 
 export function NewGoalForm({ action }: { action: (formData: FormData) => Promise<ActionResult> }) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
@@ -14,23 +17,19 @@ export function NewGoalForm({ action }: { action: (formData: FormData) => Promis
     null,
   );
   return (
-    <form action={formAction} className="flex flex-col gap-3">
-      <label className="flex flex-col gap-1 text-sm">
+    <form action={formAction} className="flex flex-col gap-4">
+      <label className={LABEL}>
         Title
-        <input name="title" required className="rounded border border-zinc-400 px-3 py-2 text-base" />
+        <input name="title" required className={field()} />
       </label>
-      <label className="flex flex-col gap-1 text-sm">
+      <label className={LABEL}>
         Description (optional)
-        <textarea name="description" rows={2} className="rounded border border-zinc-400 px-3 py-2 text-base" />
+        <textarea name="description" rows={2} className={`${field()} resize-y`} />
       </label>
-      <button
-        type="submit"
-        disabled={pending}
-        className="self-start rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
-      >
+      {state && !state.ok ? <FormError error={state.error} /> : null}
+      <button type="submit" disabled={pending} className={button("filled", "self-start")}>
         Create goal
       </button>
-      {state && !state.ok ? <FormError error={state.error} /> : null}
     </form>
   );
 }
@@ -54,45 +53,49 @@ export function GoalLists({
     setBusy(false);
   }
 
-  const btn = "rounded border border-zinc-400 px-3 py-1 text-sm disabled:opacity-60";
+  const row = "flex items-center justify-between gap-4 rounded-2xl border border-outline-variant p-4";
   return (
     <>
-      {error ? (
-        <div role="alert" className="text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-      <section aria-labelledby="active-h" className="flex flex-col gap-2">
-        <h2 id="active-h" className="text-lg font-semibold">
+      {error ? <FormError error={error} /> : null}
+      <section aria-labelledby="active-h" className="flex flex-col gap-3">
+        <h2 id="active-h" className="text-title-m text-on-surface">
           Active
         </h2>
-        {active.length === 0 ? <p className="text-sm text-zinc-600">No active goals yet.</p> : null}
+        {active.length === 0 ? <p className="text-body-m text-on-surface-variant">No active goals yet.</p> : null}
         <ul className="flex flex-col gap-2">
           {active.map((g) => (
-            <li key={g.id} className="flex items-center justify-between gap-3 rounded border border-zinc-300 p-3">
-              <div>
-                <Link href={`/goals/${g.id}`} className="underline">
+            <li key={g.id} className={row}>
+              <div className="min-w-0">
+                <Link
+                  href={`/goals/${g.id}`}
+                  className="text-title-m text-primary underline-offset-4 [overflow-wrap:anywhere] hover:underline"
+                >
                   {g.title}
                 </Link>
-                <p className="text-sm text-zinc-600">{g.statusText}</p>
+                <p className="text-body-m text-on-surface-variant">{g.statusText}</p>
               </div>
-              <button type="button" disabled={busy} className={btn} onClick={() => change(g.id, "archived")}>
+              <button type="button" disabled={busy} className={button("outlined")} onClick={() => change(g.id, "archived")}>
                 Archive
               </button>
             </li>
           ))}
         </ul>
       </section>
-      <section aria-labelledby="archived-h" className="flex flex-col gap-2">
-        <h2 id="archived-h" className="text-lg font-semibold">
+      <section aria-labelledby="archived-h" className="flex flex-col gap-3">
+        <h2 id="archived-h" className="text-title-m text-on-surface">
           Archived
         </h2>
-        {archived.length === 0 ? <p className="text-sm text-zinc-600">Nothing archived.</p> : null}
+        {archived.length === 0 ? <p className="text-body-m text-on-surface-variant">Nothing archived.</p> : null}
         <ul className="flex flex-col gap-2">
           {archived.map((g) => (
-            <li key={g.id} className="flex items-center justify-between gap-3 rounded border border-zinc-300 p-3">
-              <span>{g.title}</span>
-              <button type="button" disabled={busy} className={btn} onClick={() => change(g.id, "active")}>
+            <li key={g.id} className={row}>
+              <Link
+                href={`/goals/${g.id}`}
+                className="min-w-0 text-title-m text-on-surface-variant underline-offset-4 [overflow-wrap:anywhere] hover:underline"
+              >
+                {g.title}
+              </Link>
+              <button type="button" disabled={busy} className={button("outlined")} onClick={() => change(g.id, "active")}>
                 Unarchive
               </button>
             </li>
