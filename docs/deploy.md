@@ -13,7 +13,7 @@ feature/* ──PR──▶ dev ──PR (opened by CI)──▶ staging ──P
   - The first release merges them in this order, because each builds on the one before: `feature/foundation` → `feature/sources` → `feature/lessons` → `feature/quizzes` → `feature/material-redesign`.
 - **dev:** integration.
   - Every pull request into it runs the full checks (workflow `CI`).
-  - When CI passes on `dev`, the `Promote dev to staging` workflow opens or updates the pull request from `dev` to `staging`.
+  - When CI passes on `dev`, CI's `Promote dev to staging` job opens or updates the pull request from `dev` to `staging`.
 - **staging:** merging that pull request deploys the staging environment for user testing and QA. Record the results in [qa/qa-report-template.md](qa/qa-report-template.md).
 - **main:** production. You open a pull request from `staging` to `main`. Merging it starts the production deploy, which waits until you approve it.
 
