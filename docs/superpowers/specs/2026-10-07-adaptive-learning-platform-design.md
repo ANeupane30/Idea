@@ -19,7 +19,7 @@ A web platform where anyone can turn learning material they collect (web article
 | Personalization | Preferred **format**: `visual`, `text`, `examples`, `summary`. Stated at onboarding in v1; data collected to infer it later. |
 | Sources (v1) | Websites, YouTube (transcripts only), PDF uploads with a text layer. |
 | Visuals | Mermaid diagrams written by the AI and rendered in the browser. No AI-generated images. |
-| Relevance | Goal → editable topic map; sources mapped to subtopics with relevance scores and reasons; gaps shown. |
+| Relevance | Goal → AI-designed topic map (not user-editable), shown as a visual mind map; sources mapped to subtopics with relevance scores and reasons; gaps shown. |
 | Quizzes | Multiple choice, adaptive difficulty, decaying per-subtopic mastery with spaced review. |
 | Language | English only. |
 | Ownership | Each goal belongs to one user. |
@@ -125,8 +125,8 @@ The UI shows live status per step. Free-tier limits cap source length (e.g. vide
 ## 7. Topic map and relevance
 
 - **Creation:** Sonnet generates the map from the goal text and user level before any sources are added: 5–12 top-level subtopics, optional children, each with a 1–2 sentence summary (also used as the definition for matching), ordered basics-first. If the goal is too vague, Sonnet asks one clarifying question first.
-- **Editing:** rename, add, delete, reorder, nest. Edited subtopics are marked `user_edited` and never overwritten. Coverage is recomputed for changed subtopics against existing chunks only.
-- **Suggestions:** if a source has substantial content matching no subtopic, the user is offered "Add *X* as a subtopic?". The map is never changed without the user's action.
+- **No user editing (revised 2026-10-10):** the AI designs the map from the goal and the user's level; learners can't judge a subject's structure, so the map is not user-editable. It is shown as a visual mind map: goal → numbered main topics in learning order → child topics; selecting a topic shows its summary.
+- **Suggestions:** if a source has substantial content matching no subtopic, the AI may propose adding *X* to the map; the user only accepts or dismisses the proposal.
 - **Per-source label:** Highly relevant / Partly relevant / Off-topic, plus a one-line reason. Off-topic sources stay in the library but are excluded from lessons and quizzes.
 - **Per-subtopic coverage:** Covered / Thin (one weak source) / Gap (none). Gaps show suggested search terms.
 - **Goal page:** topic map with coverage badge and mastery bar per subtopic; source list with relevance labels; "what to add next" from gaps.

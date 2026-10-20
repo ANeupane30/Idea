@@ -1,7 +1,7 @@
 # Adaptive Learning Platform — Brainstorm Decision Log
 
 **Started:** 2026-10-07
-**Status:** Brainstorming in progress. Architecture approach agreed; detailed design sections being reviewed one at a time. This is a decision log, not the final spec.
+**Status:** Phase 1 implemented on branch `phase-1` (2026-10-10). Awaiting review and merge. This is a decision log, not the final spec.
 
 ## The idea
 
@@ -22,10 +22,12 @@ A platform where users learn in the way that suits them:
 | 4 | How preferences are known | **Both**: users state a preference at onboarding (first release); the data model supports inferring format from quiz performance later. |
 | 5 | First-release sources | **Websites, YouTube (via transcripts), PDF uploads.** All are normalized to text. GitHub and course platforms come later (course platforms are paywalled and their ToS forbid scraping, so support will be limited, e.g. user notes or syllabus metadata). |
 | 6 | Visuals | **Structured diagrams** (AI writes Mermaid diagram code, rendered in the app). No AI-generated images in the first release. Later: also pull real figures/frames from sources. |
-| 7 | Relevance matching | **Goal → editable topic map.** A goal is broken into subtopics; each source is mapped to the subtopics it covers, with a relevance score and reason; gaps are shown. |
+| 7 | Relevance matching | **Goal → AI-designed topic map** (revised 2026-10-10, see decision 11; was "editable topic map"). A goal is broken into subtopics; each source is mapped to the subtopics it covers, with a relevance score and reason; gaps are shown. |
 | 8 | Quizzes | **Multiple choice with difficulty adaptation and decaying per-subtopic mastery** (spaced review) in the first release. AI-graded short answers added later. |
 | 9 | Build constraints | Small team / solo, web app first, stack chosen by Claude. |
 | 10 | Architecture | **Next.js web app + Python worker + Supabase** (Postgres, auth, storage, pgvector). |
+| 11 | Who shapes the topic map (2026-10-10) | **The AI designs it; the user does not edit it.** Learners don't know a subject well enough to name, order, or nest its subtopics. The map is built from the goal and the user's level (beginner/intermediate/advanced) and shown as a visual mind map (goal → numbered main topics in learning order → child topics). The Phase 1 rename/move/nest/add/delete editor is removed. |
+| 12 | Sign-up (2026-10-10; defaults applied 2026-10-11) | **No forced sign-up.** Visitors get a silent guest session (Supabase anonymous sign-in), type a goal and pick their level on the first screen, and see their map. Guests get 1 active goal; sign-up ("Save your progress") converts the same account so nothing is lost. Format is asked later, when lessons exist. Later phases: guest caps of 3 sources / ~5 lessons; captcha + guest cleanup after 30 days before production. |
 
 ## Assumptions (not explicitly confirmed; correct if wrong)
 
@@ -61,7 +63,7 @@ A user sets a goal, adds a few links or PDFs, sees what each source covers and w
 | 5. Quizzes and mastery | Approved for first release |
 | 6. Error handling, cost controls, testing | Approved for first release |
 
-**Spec written:** [docs/superpowers/specs/2026-10-07-adaptive-learning-platform-design.md](../superpowers/specs/2026-10-07-adaptive-learning-platform-design.md). Approved by user on 2026-10-07. Next: implementation plan.
+**Spec written:** [docs/superpowers/specs/2026-10-07-adaptive-learning-platform-design.md](../superpowers/specs/2026-10-07-adaptive-learning-platform-design.md). Approved by user on 2026-10-07.
 
 ### Section 1 draft: Data model
 
@@ -146,12 +148,35 @@ Key points:
 - [x] Architecture approach agreed (Next.js + Python worker + Supabase)
 - [x] All 6 design sections presented and approved
 - [x] Full spec written and approved by user
-- [ ] Implementation plan (next)
-- [ ] Execution of plan
+- [x] Implementation plan (Phase 1: foundation, goals, topic map)
+- [x] Phase 1 implemented on branch `phase-1` (2026-10-10)
+- [x] Guest demo, no forced sign-up (decision 12), implemented on `phase-1` (2026-10-15)
+- [ ] Phase 2 (ingestion pipeline) plan
+
+## Spec amendments (Phase 1)
+
+- `goals` gains `map_status (pending|clarifying|ready|failed)`, `map_delayed bool`, `clarifying_question text`, `clarification_answer text`, `map_error text`.
+- `users.id` is `auth.users.id`; a trigger creates the `public.users` row at sign-up.
+- `subtopics.summary` is nullable: user-added subtopics may have no summary (Phase 2 matching falls back to the title).
+- `usage_events.kind` gains `topic_map`. `jobs` gains `locked_at`, `created_at`.
+
+## Implementation decisions (Phase 1)
+
+- npm instead of pnpm, with the Supabase CLI as a root dev dependency (no global installs).
+- Next.js 16 `proxy.ts` is used instead of `middleware.ts`.
+- Pro tier is 25 active goals and up to 6 children per subtopic (placeholder values, tune later).
+- The worker retry bound includes crash reclaims: a job that crashed the worker 4 times fails.
+- Usage is recorded even when a job fails (`pending_writes`), and truncated calls are billed.
+- An unknown serving model (server-side refusal fallback) is priced at the max known rate.
+- Onboarding preselects Text + Beginner.
+- The map editor uses buttons (rename, move, indent, outdent, delete), not drag-and-drop.
+- The live Claude smoke test is pending an API key (manual steps in the README).
 
 ## Pending decisions when resuming (planned 2026-10-08)
 
-1. **Implementation plan.** Resolved: user installed `writing-plans` and `executing-plans` (from `obra/superpowers`). Proposed: one plan per phase, starting with setup + auth, goals, topic map; awaiting user confirmation. `subagent-driven-development` also installed (scripts reviewed: benign). Then installed and reviewed (user gave blanket permission): `test-driven-development`, `using-git-worktrees`, `verification-before-completion`, `systematic-debugging`, `requesting-code-review`, `finishing-a-development-branch`. All skills needed for planning and execution are now present (project-scoped, Claude Code only).
-2. **Git.** `Desktop\ideas` is **not a git repository**, so nothing is committed yet. Decide whether to `git init` and commit the spec and this log.
+1. **Implementation plan.** Resolved: Phase 1 plan written and executed (one plan per phase). The needed skills (`writing-plans`, `executing-plans`, `subagent-driven-development`, `test-driven-development`, `using-git-worktrees`, `verification-before-completion`, `systematic-debugging`, `requesting-code-review`, `finishing-a-development-branch`) were installed and reviewed.
+2. **Git.** Resolved: the project is a git repository; work was done on branch `phase-1`.
 
-Implementation must not start until the plan is written, reviewed, and an execution method is chosen.
+## Next
+
+Review and merge `phase-1`, then write the Phase 2 (ingestion pipeline) plan.
