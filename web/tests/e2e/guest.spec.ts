@@ -1,19 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { newEmail, signUpFresh, START_HEADING, TEST_PASSWORD, userId } from "./helpers";
+import { guestBuildsMap, newEmail, signUpFresh, START_HEADING, TEST_PASSWORD, userId } from "./helpers";
 import fixture from "../../../worker/tests/fixtures/fake_llm/topic_map.json";
 
 const GUEST_LIMIT = "Sign up free to save your progress and add more goals.";
 const SIGN_IN_WARNING = "Signing in to another account won't keep your guest goal.";
 const MAIN_TOPICS = fixture.subtopics.map((t) => t.title);
-
-/** As a guest on the start page, builds a map and waits until it is ready. */
-async function guestBuildsMap(page: Page, title = "Learn SQL") {
-  await page.goto("/");
-  await page.getByLabel("Your goal").fill(title);
-  await page.getByRole("button", { name: "Build my learning map" }).click();
-  await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}/);
-  await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 15_000 });
-}
 
 async function convertGuest(page: Page, email: string) {
   await page.getByRole("link", { name: "Save your progress" }).click();

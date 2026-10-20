@@ -35,3 +35,12 @@ export async function signUpFresh(page: Page): Promise<string> {
   await expect(page).toHaveURL(/\/goals$/);
   return email;
 }
+
+/** As a guest on the start page, builds a map and waits until it is ready. */
+export async function guestBuildsMap(page: Page, title = "Learn SQL") {
+  await page.goto("/");
+  await page.getByLabel("Your goal").fill(title);
+  await page.getByRole("button", { name: "Build my learning map" }).click();
+  await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}/);
+  await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 15_000 });
+}

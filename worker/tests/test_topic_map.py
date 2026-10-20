@@ -345,3 +345,15 @@ def test_handler_skips_write_if_status_changed_during_call():
         _cleanup(a, uid, gid)
         a.close()
         b.close()
+
+
+def test_refused_call_is_billed(db, make_user, make_goal):
+    from worker.llm import LLMRefusal
+
+    uid = make_user()
+    gid = make_goal(db, uid)
+    queue_job(db, gid)
+    spy = SpyLLM([LLMRefusal(FAIL_MSG, 30, 4, "claude-sonnet-5-5")])
+    jobs.run_once(db, {"topic_map": TopicMapHandler(spy)})
+    assert goal_row(db, gid)["map_status"] == "failed"
+    assert usage_count(db, uid) == 1

@@ -33,10 +33,19 @@ export const goalSchema = z.object({
 
 export const GUEST_GOAL_LIMIT = "Sign up free to save your progress and add more goals.";
 
+export const GUEST_SOURCE_LIMIT = "Sign up free to add more sources.";
+
 export function dbErrorToMessage(err: { message: string }): string {
   const m = err.message ?? "";
-  // Checked first: "guest_goal_limit_reached" also contains "goal_limit_reached".
+  // Guest errors first: "guest_x_limit_reached" also contains "x_limit_reached".
   if (m.includes("guest_goal_limit_reached")) return GUEST_GOAL_LIMIT;
+  if (m.includes("guest_source_limit_reached")) return GUEST_SOURCE_LIMIT;
+  if (m.includes("source_attempt_limit_reached"))
+    return "You've tried adding sources too many times today. Try again tomorrow.";
+  if (m.includes("source_limit_reached")) return "You've reached today's limit for new sources. Try again tomorrow.";
+  if (m.includes("goal_not_ready")) return "Wait for your topic map to finish before adding sources.";
+  if (m.includes("goal_archived")) return "Unarchive this goal to add sources.";
+  if (m.includes("invalid_source")) return "That link or file can't be added.";
   if (m.includes("goal_limit_reached")) return "Free plan allows 2 active goals. Archive one to add another.";
   if (m.includes("not_clarifying") || m.includes("not_failed"))
     return "This goal's topic map has already moved on. Refresh the page.";

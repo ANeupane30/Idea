@@ -8,9 +8,17 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.13.0",
+    "fastembed>=0.9.0",
+    "httpx>=0.28.1",
+    "numpy>=2.5.4",
+    "pgvector>=0.5.1",
+    "playwright>=1.64.0",
     "psycopg[binary]>=3.3.6",
     "pydantic>=2.14.0",
     "pydantic-settings>=2.15.0",
+    "pymupdf>=1.28.2",
+    "trafilatura>=2.3.1",
+    "youtube-transcript-api>=1.2.4",
 ]
 
 [project.scripts]
@@ -28,3 +36,4 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["error"]
+markers = ["slow: downloads or runs a real model (skip with FASTEMBED_SKIP=1)"]

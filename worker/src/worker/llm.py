@@ -38,6 +38,29 @@ class LLMOutputError(Exception):
         self.model = model
 
 
+class LLMRefusal(PermanentJobError):
+    """The model declined, or the API rejected the request. Carries any token usage so it can be billed.
+
+    Callers decide the user-facing message; the default is the topic-map one."""
+
+    def __init__(self, message: str, input_tokens: int = 0, output_tokens: int = 0, model: str = ""):
+        super().__init__(message)
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.model = model
+
+
+# Request options per model. Effort and server-side refusal fallbacks only for models that
+# accept them: Haiku 4.5 rejects output_config.effort, and Haiku models have no fallback.
+_MODEL_OPTIONS: dict[str, dict] = {
+    "claude-sonnet-5-5": {
+        "output_config": {"effort": "medium"},
+        "betas": [FALLBACK_BETA],
+        "fallbacks": "default",
+    },
+}
+
+
 @dataclass
 class LLMResult(Generic[T]):
     output: T
@@ -79,16 +102,16 @@ class AnthropicLLM:
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 output_format=schema,
-                output_config={"effort": "medium"},
-                betas=[FALLBACK_BETA],
-                fallbacks="default",
+                **_MODEL_OPTIONS.get(model, {}),
             )
         except _PERMANENT_API_ERRORS as e:
             # Retrying the same request cannot fix these; keep the detail in the log only.
             log.exception("Anthropic request rejected (%s)", type(e).__name__)
-            raise PermanentJobError(REFUSAL_MESSAGE) from e
+            raise LLMRefusal(REFUSAL_MESSAGE, model=model) from e
         if response.stop_reason == "refusal":
-            raise PermanentJobError(REFUSAL_MESSAGE)
+            raise LLMRefusal(
+                REFUSAL_MESSAGE, response.usage.input_tokens, response.usage.output_tokens, response.model
+            )
         if response.parsed_output is None:
             raise LLMOutputError(
                 f"no parsed output (stop_reason={response.stop_reason})",
@@ -111,6 +134,14 @@ class FakeLLM:
     def parse(
         self, *, model: str, system: str, user: str, schema: type[T], max_tokens: int = 16000
     ) -> LLMResult[T]:
+        # Imported here: the ingest modules import this one.
+        from worker.ingest.mapping import MappingResponse, fake_mapping_response
+        from worker.ingest.punctuate import PunctuationResponse, fake_punctuation_response
+
+        if schema is MappingResponse:
+            return LLMResult(fake_mapping_response(user), 100, 50, model)
+        if schema is PunctuationResponse:
+            return LLMResult(fake_punctuation_response(user), 100, 100, model)
         clarify = "[clarify]" in user and "<clarification_answer>" not in user
         name = "topic_map_clarify.json" if clarify else "topic_map.json"
         output = schema.model_validate_json((self._dir / name).read_text(encoding="utf-8"))
