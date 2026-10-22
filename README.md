@@ -23,8 +23,11 @@ The local stack uses ports 44320-44329. They sit below Windows's dynamic port ra
 1. Copy `web/.env.local.example` to `web/.env.local` and fill in the values from `npx supabase status` (API URL and anon/publishable key).
 2. Create `worker/.env` with:
    - `SUPABASE_SECRET_KEY=...` (the secret key from `npx supabase status`), so the worker can download uploaded PDFs; and either
-   - `ANTHROPIC_API_KEY=...` for real topic maps and source matching, or
+   - `LLM_PROVIDER=openrouter` and `OPENROUTER_API_KEY=...` to use free models on OpenRouter, or
+   - `ANTHROPIC_API_KEY=...` to use Claude (the default provider), or
    - `LLM_PROVIDER=fake` to use the built-in fake LLM (no key, deterministic output).
+
+   With OpenRouter, `OPENROUTER_MODELS_SMART` (maps, lessons, quiz questions) and `OPENROUTER_MODELS_FAST` (source matching, transcript punctuation, quiz checks) pick the models: comma-separated ids, tried in order. Both default to free models. Free models share one account-wide quota of 20 requests a minute and 50 a day, or 1000 a day once the account has bought $10 of credits.
 3. Lessons stream from the worker's lesson server. Put the same random value in `LESSON_SERVER_TOKEN` in both `worker/.env` and `web/.env.local`, and set `LESSON_SERVER_URL=http://127.0.0.1:8787` in `web/.env.local`.
 4. Install the worker's headless browser (used for web pages that need JavaScript): `cd worker && uv run playwright install chromium`.
 
@@ -58,7 +61,7 @@ npm run test:e2e     # Playwright; starts the web server, a fixture site, a fake
 
 All automated tests use the fake LLM. The real Claude path has not been exercised because no API key was available. To check it manually:
 
-1. Put `ANTHROPIC_API_KEY=...` in `worker/.env` (and make sure `LLM_PROVIDER` is not set to `fake`).
+1. Put `ANTHROPIC_API_KEY=...` in `worker/.env` (and make sure `LLM_PROVIDER` is not set to `fake`). For OpenRouter, put `LLM_PROVIDER=openrouter` and `OPENROUTER_API_KEY=...` there instead.
 2. Start Supabase, the web app and the worker (see above), open http://localhost:3000 (you start as a guest).
 3. Enter the goal "Learn the basics of personal finance" and click "Build my learning map".
 4. Wait for the worker to process the job.

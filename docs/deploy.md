@@ -54,12 +54,12 @@ You also need a Supabase **access token** (Account → Access tokens) for CI.
 
 ### 2. Fly.io (two apps: e.g. `learning-worker-staging`, `learning-worker-prod`)
 
-Create each app with `fly apps create <name>`, then set its secrets once:
+Create each app with `fly apps create <name>`, then set its secrets once. The LLM provider is set in `deploy/fly.toml` (`LLM_PROVIDER`, OpenRouter by default); set the key for that provider (`OPENROUTER_API_KEY`, or `ANTHROPIC_API_KEY` for Claude):
 
 ```
 fly secrets set --app <name> \
   DATABASE_URL=... \
-  ANTHROPIC_API_KEY=... \
+  OPENROUTER_API_KEY=... \
   SUPABASE_URL=https://<ref>.supabase.co \
   SUPABASE_SECRET_KEY=... \
   LESSON_SERVER_TOKEN=<random, 32+ chars> \
