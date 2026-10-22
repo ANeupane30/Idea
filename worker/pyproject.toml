@@ -11,6 +11,7 @@ dependencies = [
     "fastembed>=0.9.0",
     "httpx>=0.28.1",
     "numpy>=2.5.4",
+    "openai>=3.36.0",
     "pgvector>=0.5.1",
     "playwright>=1.64.0",
     "psycopg[binary]>=3.3.6",
