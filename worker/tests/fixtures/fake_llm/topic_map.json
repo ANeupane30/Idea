@@ -1,0 +1,54 @@
+{
+  "needs_clarification": false,
+  "clarifying_question": null,
+  "subtopics": [
+    {
+      "title": "What databases and SQL are",
+      "summary": "Explains what relational databases are and what SQL is used for. Covers tables, rows, columns and keys.",
+      "children": []
+    },
+    {
+      "title": "Querying with SELECT",
+      "summary": "Retrieve data from one table using SELECT and FROM. Choose columns, rename them and remove duplicates.",
+      "children": [
+        {
+          "title": "Filtering with WHERE",
+          "summary": "Keep only the rows that match a condition using comparison and logical operators."
+        },
+        {
+          "title": "Sorting and limiting results",
+          "summary": "Order rows with ORDER BY and cap the output with LIMIT."
+        }
+      ]
+    },
+    {
+      "title": "Aggregation and grouping",
+      "summary": "Summarize data with COUNT, SUM and AVG. Group rows with GROUP BY and filter groups with HAVING.",
+      "children": [
+        {
+          "title": "Aggregate functions",
+          "summary": "Compute counts, totals, averages, minimums and maximums over sets of rows."
+        },
+        {
+          "title": "GROUP BY and HAVING",
+          "summary": "Split rows into groups and filter the groups after aggregation."
+        }
+      ]
+    },
+    {
+      "title": "Joining tables",
+      "summary": "Combine rows from related tables using inner, left and other joins. Understand how keys link tables together.",
+      "children": []
+    },
+    {
+      "title": "Modifying data and schemas",
+      "summary": "Add, change and remove rows with INSERT, UPDATE and DELETE. Create and alter tables with DDL statements.",
+      "children": []
+    },
+    {
+      "title": "Indexes and query performance",
+      "summary": "Learn how indexes speed up queries and how to read a query plan. Spot common causes of slow queries.",
+      "children": []
+    }
+  ]
+}

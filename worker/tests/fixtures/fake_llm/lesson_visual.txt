@@ -1,0 +1,10 @@
+<section>
+<markdown>**Joins connect related tables.** Each order points at the customer who placed it, and a join follows that link.</markdown>
+<mermaid>graph LR; O[Orders] -->|customer_id| C[Customers]</mermaid>
+<cite>1</cite>
+</section>
+<section>
+<markdown>**Inner join vs left join.** An inner join keeps only matching rows; a left join keeps every row from the left table.</markdown>
+<mermaid>graph TD; J[Join] --> I[Inner: matching rows only]; J --> L[Left: every left row]</mermaid>
+<cite>1, 2</cite>
+</section>

@@ -1,7 +1,7 @@
 # Adaptive Learning Platform — Brainstorm Decision Log
 
 **Started:** 2026-10-07
-**Status:** Brainstorming in progress. Architecture approach agreed; detailed design sections being reviewed one at a time. This is a decision log, not the final spec.
+**Status:** Phase 1 on branch `phase-1` (2026-10-10) and Phases 2, 3 and 4 on branches `phase-2`, `phase-3` and `phase-4` (2026-10-15 to 19) implemented. Every first-release feature in the spec now exists. Awaiting review and merge. This is a decision log, not the final spec.
 
 ## The idea
 
@@ -22,10 +22,12 @@ A platform where users learn in the way that suits them:
 | 4 | How preferences are known | **Both**: users state a preference at onboarding (first release); the data model supports inferring format from quiz performance later. |
 | 5 | First-release sources | **Websites, YouTube (via transcripts), PDF uploads.** All are normalized to text. GitHub and course platforms come later (course platforms are paywalled and their ToS forbid scraping, so support will be limited, e.g. user notes or syllabus metadata). |
 | 6 | Visuals | **Structured diagrams** (AI writes Mermaid diagram code, rendered in the app). No AI-generated images in the first release. Later: also pull real figures/frames from sources. |
-| 7 | Relevance matching | **Goal → editable topic map.** A goal is broken into subtopics; each source is mapped to the subtopics it covers, with a relevance score and reason; gaps are shown. |
+| 7 | Relevance matching | **Goal → AI-designed topic map** (revised 2026-10-10, see decision 11; was "editable topic map"). A goal is broken into subtopics; each source is mapped to the subtopics it covers, with a relevance score and reason; gaps are shown. |
 | 8 | Quizzes | **Multiple choice with difficulty adaptation and decaying per-subtopic mastery** (spaced review) in the first release. AI-graded short answers added later. |
 | 9 | Build constraints | Small team / solo, web app first, stack chosen by Claude. |
 | 10 | Architecture | **Next.js web app + Python worker + Supabase** (Postgres, auth, storage, pgvector). |
+| 11 | Who shapes the topic map (2026-10-10) | **The AI designs it; the user does not edit it.** Learners don't know a subject well enough to name, order, or nest its subtopics. The map is built from the goal and the user's level (beginner/intermediate/advanced) and shown as a visual mind map (goal → numbered main topics in learning order → child topics). The Phase 1 rename/move/nest/add/delete editor is removed. |
+| 12 | Sign-up (2026-10-10; defaults applied 2026-10-11) | **No forced sign-up.** Visitors get a silent guest session (Supabase anonymous sign-in), type a goal and pick their level on the first screen, and see their map. Guests get 1 active goal; sign-up ("Save your progress") converts the same account so nothing is lost. Format is asked later, when lessons exist. Later phases: guest caps of 3 sources / ~5 lessons; captcha + guest cleanup after 30 days before production. |
 
 ## Assumptions (not explicitly confirmed; correct if wrong)
 
@@ -61,7 +63,7 @@ A user sets a goal, adds a few links or PDFs, sees what each source covers and w
 | 5. Quizzes and mastery | Approved for first release |
 | 6. Error handling, cost controls, testing | Approved for first release |
 
-**Spec written:** [docs/superpowers/specs/2026-10-07-adaptive-learning-platform-design.md](../superpowers/specs/2026-10-07-adaptive-learning-platform-design.md). Approved by user on 2026-10-07. Next: implementation plan.
+**Spec written:** [docs/superpowers/specs/2026-10-07-adaptive-learning-platform-design.md](../superpowers/specs/2026-10-07-adaptive-learning-platform-design.md). Approved by user on 2026-10-07.
 
 ### Section 1 draft: Data model
 
@@ -146,12 +148,64 @@ Key points:
 - [x] Architecture approach agreed (Next.js + Python worker + Supabase)
 - [x] All 6 design sections presented and approved
 - [x] Full spec written and approved by user
-- [ ] Implementation plan (next)
-- [ ] Execution of plan
+- [x] Implementation plan (Phase 1: foundation, goals, topic map)
+- [x] Phase 1 implemented on branch `phase-1` (2026-10-10)
+- [x] Guest demo, no forced sign-up (decision 12), implemented on `phase-1` (2026-10-15)
+- [x] Phase 2 (ingestion pipeline) plan and implementation, on branch `phase-2` (2026-10-15)
+- [x] Phase 3 (lessons) plan and implementation, on branch `phase-3` (2026-10-16)
+- [x] Phase 4 (quizzes and mastery) plan and implementation, on branch `phase-4` (2026-10-19)
+- [ ] Production readiness (follow-ups) and quality evals
+
+## Spec amendments (Phase 1)
+
+- `goals` gains `map_status (pending|clarifying|ready|failed)`, `map_delayed bool`, `clarifying_question text`, `clarification_answer text`, `map_error text`.
+- `users.id` is `auth.users.id`; a trigger creates the `public.users` row at sign-up.
+- `subtopics.summary` is nullable: user-added subtopics may have no summary (Phase 2 matching falls back to the title).
+- `usage_events.kind` gains `topic_map`. `jobs` gains `locked_at`, `created_at`.
+
+## Spec amendments (Phase 2)
+
+- `sources` gains `file_name`, `step`, `delayed`, `relevance`, `relevance_label`, `relevance_reason` and `queued_at`.
+- New tables `contents` (one row per extracted content hash, with its title, token count, duration, page count and embedding model) and `subtopic_embeddings`.
+- `source_chunks` stores `token_count`. Coverage is the view `subtopic_coverage`.
+- Embeddings come from a local model, `BAAI/bge-small-en-v1.5` (384 dims, fastembed); no embedding API key.
+- Quotas: guests 3 sources in total; free 5 and Pro 50 a UTC day; failed sources don't count. Add and retry attempts are capped at 3x the daily limit (guests 10 in total). Length caps: free 90 min, 150 pages, 60,000 tokens; Pro 240 min, 600 pages, 250,000 tokens.
+- "Add X to the map" suggestions are deferred to a later phase (decided with the user 2026-10-15).
+
+## Spec amendments (Phase 3)
+
+- `lessons` gains `user_id`, `level`, `status (generating|ready|failed)`, `reused` and `delivered`. One generation at a time per topic and format.
+- `lesson_feedback` and `format_events` are as specified. `learning_prefs` gains `format_chosen` (asked on the first lesson; the start page doesn't ask).
+- Lessons stream from a token-protected worker HTTP server (`python -m worker.lesson_server`) through the Next.js route `/api/lessons`, as NDJSON: `start` (numbered sources), `section`, then `done` (or `lesson` / `error`).
+- Diagrams are validated with mermaid.js in the worker's headless Chromium (the same validator the Mermaid CLI uses), one repair, then dropped.
+- Limits: guests 5 lessons in total; free 15 and Pro 150 a UTC day. A cached copy of an identical lesson doesn't count and cites the user's own sources; a lesson that streamed content counts even if it was cut off.
+
+## Spec amendments (Phase 4)
+
+- `quiz_questions` gains `user_id` and `citations` (this user's source titles and links); `options` is an array of 4.
+- New tables `quiz_banks` (per-topic bank status), `quizzes`, `quiz_items` and `question_flags`. `quiz_attempts` gains `quiz_id`, `seq`, `excluded` and `before` (the mastery row before the answer, used to undo a disputed answer).
+- Every quiz action is a security-definer SQL function (`start_quiz`, `next_question`, `answer_question`, `flag_question`, `finish_quiz`, `retry_quiz_bank`, `goal_mastery`); users never read answer keys.
+- Banks: 6 questions per difficulty, written by the `quiz_bank` worker job; a top-up of 6 is queued when the learner runs out of unseen questions at their level.
+- Generation limits (not in the spec): guests 5 bank generations in total, free 15 and Pro 150 a UTC day; failed generations don't count. Answering is unlimited.
+- The half-life resets to 3 when decayed mastery is below 0.5 before an answer, or the answer leaves the score below 0.5.
+
+## Implementation decisions (Phase 1)
+
+- npm instead of pnpm, with the Supabase CLI as a root dev dependency (no global installs).
+- Next.js 16 `proxy.ts` is used instead of `middleware.ts`.
+- Pro tier is 25 active goals and up to 6 children per subtopic (placeholder values, tune later).
+- The worker retry bound includes crash reclaims: a job that crashed the worker 4 times fails.
+- Usage is recorded even when a job fails (`pending_writes`), and truncated calls are billed.
+- An unknown serving model (server-side refusal fallback) is priced at the max known rate.
+- Onboarding preselects Text + Beginner.
+- The map editor uses buttons (rename, move, indent, outdent, delete), not drag-and-drop.
+- The live Claude smoke test is pending an API key (manual steps in the README).
 
 ## Pending decisions when resuming (planned 2026-10-08)
 
-1. **Implementation plan.** Resolved: user installed `writing-plans` and `executing-plans` (from `obra/superpowers`). Proposed: one plan per phase, starting with setup + auth, goals, topic map; awaiting user confirmation. `subagent-driven-development` also installed (scripts reviewed: benign). Then installed and reviewed (user gave blanket permission): `test-driven-development`, `using-git-worktrees`, `verification-before-completion`, `systematic-debugging`, `requesting-code-review`, `finishing-a-development-branch`. All skills needed for planning and execution are now present (project-scoped, Claude Code only).
-2. **Git.** `Desktop\ideas` is **not a git repository**, so nothing is committed yet. Decide whether to `git init` and commit the spec and this log.
+1. **Implementation plan.** Resolved: Phase 1 plan written and executed (one plan per phase). The needed skills (`writing-plans`, `executing-plans`, `subagent-driven-development`, `test-driven-development`, `using-git-worktrees`, `verification-before-completion`, `systematic-debugging`, `requesting-code-review`, `finishing-a-development-branch`) were installed and reviewed.
+2. **Git.** Resolved: the project is a git repository; work was done on branch `phase-1`.
 
-Implementation must not start until the plan is written, reviewed, and an execution method is chosen.
+## Next
+
+Review and merge `phase-1` through `phase-4`. Then work through the follow-ups marked "Before production" and build the quality evals (spec §11).

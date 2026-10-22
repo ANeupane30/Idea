@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Start</title></head>
+<body><p>Start page.</p>
+<script>
+  // Navigates through a public-looking redirect to a blocked host.
+  location.href = "/redirect?to=" + encodeURIComponent("http://localhost:" + location.port + "/secret.html");
+</script>
+</body></html>

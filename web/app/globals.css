@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+/*
+ * Material 3 colour roles from the design (one blue seed, #3F6FB5). Components use the
+ * role classes (bg-primary, text-on-surface-variant, ...) and never raw palette colours,
+ * so dark mode is just a second set of values here.
+ */
+:root {
+  --m-primary: #3f5f90;
+  --m-on-primary: #ffffff;
+  --m-primary-container: #d6e3ff;
+  --m-on-primary-container: #264777;
+  --m-secondary-container: #d9e3f9;
+  --m-on-secondary-container: #3e4758;
+  --m-surface: #f9f9ff;
+  --m-surface-container-low: #f3f3fa;
+  --m-surface-container: #ededf4;
+  --m-surface-container-high: #e7e8ee;
+  --m-surface-container-highest: #e2e2e9;
+  --m-on-surface: #191c20;
+  --m-on-surface-variant: #43474e;
+  --m-outline: #74777f;
+  --m-outline-variant: #c4c6cf;
+  --m-positive: #d7f0dd;
+  --m-on-positive: #00522a;
+  --m-partial: #ffeedb;
+  --m-on-partial: #624000;
+  --m-negative: #ffdad6;
+  --m-on-negative: #93000a;
+  --m-scrim: rgb(25 28 32 / 0.32);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --m-primary: #a9c7ff;
+    --m-on-primary: #0b305f;
+    --m-primary-container: #284777;
+    --m-on-primary-container: #d6e3ff;
+    --m-secondary-container: #3e4759;
+    --m-on-secondary-container: #d9e3f9;
+    --m-surface: #111318;
+    --m-surface-container-low: #191c20;
+    --m-surface-container: #1d2024;
+    --m-surface-container-high: #282a2f;
+    --m-surface-container-highest: #33353a;
+    --m-on-surface: #e2e2e9;
+    --m-on-surface-variant: #c4c6cf;
+    --m-outline: #8e9099;
+    --m-outline-variant: #43474e;
+    --m-positive: #0f5223;
+    --m-on-positive: #a6f2b5;
+    --m-partial: #5c4300;
+    --m-on-partial: #ffddb0;
+    --m-negative: #93000a;
+    --m-on-negative: #ffdad6;
+    --m-scrim: rgb(0 0 0 / 0.5);
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-primary: var(--m-primary);
+  --color-on-primary: var(--m-on-primary);
+  --color-primary-container: var(--m-primary-container);
+  --color-on-primary-container: var(--m-on-primary-container);
+  --color-secondary-container: var(--m-secondary-container);
+  --color-on-secondary-container: var(--m-on-secondary-container);
+  --color-surface: var(--m-surface);
+  --color-surface-container-low: var(--m-surface-container-low);
+  --color-surface-container: var(--m-surface-container);
+  --color-surface-container-high: var(--m-surface-container-high);
+  --color-surface-container-highest: var(--m-surface-container-highest);
+  --color-on-surface: var(--m-on-surface);
+  --color-on-surface-variant: var(--m-on-surface-variant);
+  --color-outline: var(--m-outline);
+  --color-outline-variant: var(--m-outline-variant);
+  --color-positive: var(--m-positive);
+  --color-on-positive: var(--m-on-positive);
+  --color-partial: var(--m-partial);
+  --color-on-partial: var(--m-on-partial);
+  --color-negative: var(--m-negative);
+  --color-on-negative: var(--m-on-negative);
+  --color-scrim: var(--m-scrim);
+  --font-sans: var(--font-roboto-flex), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Type scale (Roboto Flex). */
+@utility text-display-s {
+  font-size: 36px;
+  line-height: 44px;
+  font-weight: 400;
+}
+@utility text-headline-m {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 400;
+}
+@utility text-headline-s {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 400;
+}
+@utility text-title-l {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 400;
+}
+@utility text-title-m {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 500;
+}
+@utility text-body-l {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+}
+@utility text-body-m {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+@utility text-label-l {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+@utility text-label-m {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+}
+
+body {
+  background: var(--m-surface);
+  color: var(--m-on-surface);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--m-primary-container);
+  color: var(--m-on-primary-container);
+}
+
+dialog::backdrop {
+  background: var(--m-scrim);
+}
+
+/* Topic map detail sheet (below xl) and dialogs: short entrance motion. */
+@theme {
+  --animate-sheet-in: sheet-in 220ms ease-out;
+  --animate-dialog-in: dialog-in 180ms ease-out;
+
+  @keyframes sheet-in {
+    from { transform: translateY(2rem); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+
+  @keyframes dialog-in {
+    from { transform: scale(0.97); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

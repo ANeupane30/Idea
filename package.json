@@ -1,0 +1,14 @@
+{
+  "name": "adaptive-learning-platform",
+  "private": true,
+  "scripts": {
+    "db:reset": "npx supabase db reset",
+    "test:db": "npx supabase test db",
+    "test:worker": "cd worker && uv run pytest",
+    "test:web": "cd web && npx vitest run",
+    "test:e2e": "cd web && npx playwright test"
+  },
+  "devDependencies": {
+    "supabase": "^2.120.0"
+  }
+}

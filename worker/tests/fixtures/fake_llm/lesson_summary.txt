@@ -1,0 +1,7 @@
+<section>
+<markdown>- Joins combine rows from related tables.
+- Keys link tables: foreign keys match primary keys.
+- Inner joins keep matching rows; left joins keep every left row.</markdown>
+<mermaid>graph TD; A[Join] --> B[Inner]; A --> C[Left]</mermaid>
+<cite>1, 2</cite>
+</section>
