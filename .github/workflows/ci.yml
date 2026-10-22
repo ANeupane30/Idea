@@ -22,7 +22,7 @@ env:
 jobs:
   detect:
     name: Detect the app
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       app: ${{ steps.check.outputs.app }}
     steps:
@@ -35,7 +35,7 @@ jobs:
     name: Web (typecheck, lint, unit)
     needs: detect
     if: needs.detect.outputs.app == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     defaults:
       run:
@@ -58,7 +58,7 @@ jobs:
     name: Database, worker and browser tests
     needs: detect
     if: needs.detect.outputs.app == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       CI: "true"
@@ -135,7 +135,7 @@ jobs:
     name: Promote dev to staging
     needs: [web, integration]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:

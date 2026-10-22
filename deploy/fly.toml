@@ -1,7 +1,8 @@
 # Fly.io app for the worker and the lesson server. The app name comes from CI (--app),
 # one app per environment (staging, production). Secrets are set once with `fly secrets set`
 # (see docs/deploy.md).
-primary_region = "iad"
+# Tokyo: the nearest Fly region to the Supabase projects (Seoul, ap-northeast-2).
+primary_region = "nrt"
 
 [processes]
   worker = "python -m worker"
