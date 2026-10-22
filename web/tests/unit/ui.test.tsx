@@ -15,6 +15,22 @@ describe("Icon", () => {
     expect(svg.getAttribute("aria-hidden")).toBe("true");
     expect(svg.textContent).toBe("");
   });
+
+  it.each(["signal_cellular_alt_1_bar", "signal_cellular_alt_2_bar"] as const)(
+    "draws %s over a faded full-signal track, so one bar reads as 1 of 3",
+    (name) => {
+      const { container } = render(<Icon name={name} />);
+      const paths = container.querySelectorAll("svg path");
+      expect(paths).toHaveLength(2);
+      expect(paths[0].getAttribute("opacity")).toBe("0.3");
+      expect(paths[1].getAttribute("opacity")).toBeNull();
+    },
+  );
+
+  it("draws other icons as a single path", () => {
+    const { container } = render(<Icon name="signal_cellular_alt" />);
+    expect(container.querySelectorAll("svg path")).toHaveLength(1);
+  });
 });
 
 describe("StatusChip", () => {

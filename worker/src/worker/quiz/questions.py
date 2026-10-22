@@ -9,6 +9,8 @@ from worker.lessons.content import LessonChunk
 
 MODEL = "claude-sonnet-5-5"
 BANNED_OPTIONS = re.compile(r"^\s*(all of the above|none of the above|both a and b)\W*$", re.I)
+# Learners see their sources, never our numbered chunks or "the provided text".
+PROMPT_REFERENCE = re.compile(r"\b(chunks?|excerpts?)\b|\bthe (provided|given) (text|passage|material)\b|\bthe passage\b", re.I)
 
 
 class QuestionDraft(BaseModel):
@@ -42,6 +44,7 @@ Rules for every question:
 - Never use "All of the above", "None of the above" or "Both A and B". No giveaway wording.
 - Answerable from the excerpts alone. Cite the excerpt numbers it relies on in "cite".
 - The explanation says why the answer is right, in at most 500 characters.
+- Never mention the excerpts, chunks, their numbers or "the provided text" in a stem, option or explanation: the learner never sees them. Each question must read on its own.
 - correct_index is the 0-based position of the correct option. Vary it across questions.
 Write exactly the requested number of questions at each difficulty."""
 
@@ -76,6 +79,8 @@ def check_draft(d: QuestionDraft, n_chunks: int) -> list[str]:
         problems.append("correct_index must be 0-3")
     if not 1 <= len(d.explanation.strip()) <= 500:
         problems.append("explanation must be 1-500 characters")
+    if any(PROMPT_REFERENCE.search(t) for t in [d.stem, d.explanation, *options]):
+        problems.append("don't mention the excerpts or chunks; the learner never sees them")
     if not d.cite or any(not 1 <= n <= n_chunks for n in d.cite):
         problems.append("cite at least one valid excerpt number")
     return problems

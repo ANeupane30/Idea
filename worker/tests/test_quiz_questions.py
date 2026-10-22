@@ -1,3 +1,4 @@
+import pytest
 import uuid
 
 from worker.lessons.content import LessonChunk
@@ -55,3 +56,32 @@ def test_fake_question_set():
     assert all(check_draft(q, 1) == [] for q in out.questions)
     assert [q.correct_index for q in out.questions] == [0, 1, 2]
     assert all(q.options[q.correct_index] == "Joins combine rows from related tables." for q in out.questions)
+
+
+@pytest.mark.parametrize(
+    "field,text",
+    [
+        ("stem", "According to the 50/30/20 rule described in Chunk 2, what share goes to needs?"),
+        ("stem", "Based on the provided text, what is an emergency fund?"),
+        ("stem", "Which excerpt defines compound interest?"),
+        ("explanation", "Excerpt 3 says savings grow faster over time."),
+        ("explanation", "As chunk 1 states, joins combine rows."),
+    ],
+)
+def test_check_draft_rejects_references_to_the_prompt(field, text):
+    # Learners never see our chunks or excerpts; questions must stand on their own.
+    assert any("excerpt" in p for p in check_draft(draft(**{field: text}), 2))
+
+
+def test_check_draft_rejects_chunk_references_in_options():
+    assert check_draft(draft(options=["Chunk 1", "Deletes rows", "Renames tables", "Creates indexes"]), 2)
+
+
+def test_check_draft_allows_ordinary_wording():
+    assert check_draft(draft(explanation="The source says joins combine rows from related tables."), 2) == []
+    assert check_draft(draft(stem="Why does a text index speed up searches?"), 2) == []
+
+
+def test_prompt_forbids_mentioning_excerpts():
+    system, _ = build_question_prompt("t", None, "beginner", {1: 1}, [])
+    assert "Never mention the excerpts" in system
