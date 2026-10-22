@@ -387,7 +387,9 @@ deno_version = 2
 # secret_key = "env(SECRET_VALUE)"
 
 [analytics]
-enabled = true
+# Off locally: Vector (its log collector) needs the Docker API over TCP, which Docker Desktop
+# does not expose by default, so it restart-loops. Studio's Logs page needs this on.
+enabled = false
 port = 44327
 # Configure one of the supported backends: `postgres`, `bigquery`.
 backend = "postgres"
