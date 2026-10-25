@@ -81,6 +81,10 @@ Most likely problems first:
 4. **The learner refreshes during `matching_sources` while gap candidates are in flight.** The same stage shows, and the goal reaches `ready` at the 45 s cap through the sweep, even if the gap job died. Test in Task 8.
 5. **Two job threads finish the last two sources of one goal at the same moment.** Exactly one `check_sources` (or gap) job is queued, guarded by the goal row lock. Test in Task 6.
 6. **A Tavily result is a YouTube video for a Reading learner.** It counts as a normal candidate, is still capped at 2 per goal, and needs no YouTube key. Test in Task 4.
+7. **"Use mine anyway" with a source that could never be read** (HTTP 403 or 404, a timeout, an unparseable PDF). It has no chunks or structure, so `topic_map` must fall back to the starting-point map from the intent. It must not crash or build empty topics. Test in Task 7.
+8. **An `ingest_source` job crashes or its worker dies.** The source must still end up `failed`, through the queue's retries and permanent failure, or through reclaiming a stale job. If not, `finish_reading` waits forever; the 5-minute sweep is the backstop. Test in Task 6.
+9. **Tavily returns the same page with tracking parameters, a `#fragment` or a trailing slash.** It must take one candidate slot, not several. Test in Task 4.
+10. **Every gap search returns nothing or fails vetting.** The goal must go `ready` as soon as nothing is in flight, not wait for the 45 s deadline. The sweep is only a backstop for stalled jobs. Test in Task 8.
 
 ---
 
@@ -205,6 +209,7 @@ Most likely problems first:
   - **Without sources:** the goal ends at `finding_sources` with a `find_sources` job and stored fields.
   - **With a link already read** (`awaiting_map`): the goal goes to `reading_sources`, then straight to `checking_sources` (Review Focus 2; uses Task 6's `finish_reading`, so this test is marked `xfail` until Task 6 and turned on there).
   - **A permanent failure** still moves the goal on, with the fallback fields.
+  - **Sources read in parallel with understanding:** the learner's links are already being ingested while the goal is `understanding`. If the last one finishes first, its `finish_reading` call is a no-op, because the goal isn't `reading_sources` yet. When `UnderstandHandler` then sets `reading_sources`, it calls `finish_reading`, which moves the goal on. Test this order, and the opposite one.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run them, then the full worker suite.**
@@ -234,6 +239,9 @@ Most likely problems first:
 
 - [ ] **Step 1: Write the tests:**
   - **`pick_candidates`:** domain caps, video caps by style, and the order.
+  - **Duplicates (Review Focus 9):** `https://a.example/x?utm_source=t&utm_medium=m#intro`, `https://a.example/x/` and `https://A.example/x` are one candidate.
+    - De-duplicate with `ingest.urls.normalize_url`, which already drops tracking parameters and fragments, then strip a trailing `/` from non-root paths.
+    - This also applies to the URLs already stored for the goal.
   - **The handler:** with a stub Tavily returning 12 hits across domains, there are 8 candidates, `found_for_goal`, `reading_sources`, and the scores stored.
   - **The fallback:** each of `QuotaExhausted`, no key, and `[]` takes the Wikipedia path with the log line.
   - **Nothing anywhere:** gives `building_map` with `starting_point` and a `topic_map` job.
@@ -307,7 +315,10 @@ Most likely problems first:
     - 1 vetted found source on round 0 gives round 2. After round 1, it falls back.
   - **Review Focus:**
     - All sources failed to read (Review Focus 3).
-    - Two `finish_reading` calls queue one `check_sources` (Review Focus 5).
+    - **Two `finish_reading` calls queue one `check_sources`** (Review Focus 5). Use two real connections: the second blocks on the goal lock, then sees `checking_sources` inside the lock and does nothing. The status is re-read after `for update`, never trusted from before it.
+    - **A crashed ingest (Review Focus 8):**
+      - An `ingest_source` handler that raises an unexpected error on every attempt ends with the source `failed` after `MAX_ATTEMPTS`, and the goal moves on.
+      - A job left `running` by a dead worker is reclaimed after the stale timeout, and ends the same way.
   - Turn on Task 3's xfail test.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
@@ -343,6 +354,7 @@ Most likely problems first:
   - **Structure:** comes only from vetted sources (an unvetted user source is left out).
   - **The write:** the status is `matching_sources`, and the vetted sources are re-queued.
   - **Starting point:** with no structure, the goal-only prompt is used.
+  - **"Use mine anyway" with nothing readable (Review Focus 7):** structure counts only sources that have chunks. With none, the goal gets `map_note='starting_point'` and the intent-only map, with no empty topics and no error.
 - [ ] **Step 2: Run them.** Expected: FAIL.
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run the full worker suite.** Expected: PASS.
@@ -383,6 +395,9 @@ Most likely problems first:
     - The gap phase starts with uncovered topics.
     - The goal is `ready` when the gap sources finish.
   - **The sweep:** a deadline in the past gives `ready` (Review Focus 4).
+  - **Gaps that produce nothing (Review Focus 10):**
+    - `FillGapsHandler` that inserts no candidate calls `finish_matching` itself, and the goal is `ready` at once.
+    - When every gap source fails or is deleted by vetting, the last one's ingest calls `finish_matching`, and the goal is `ready` before `gap_deadline`.
   - **Vetting late sources:**
     - A late automatic source that fails vetting is deleted.
     - A late user source that fails stays ready with no coverage.
@@ -442,6 +457,14 @@ Most likely problems first:
     - Its buttons call `answerSourceDecision(goalId, "find")` and `"use"`.
   - **The source list:** "Not used", and "Use it anyway" calls `useSourceAnyway`.
   - **The lesson,** for both no-source messages.
+  - **Counts in "Reading <i> of <n>":**
+    - `n` is the goal's non-failed sources.
+    - `i = min(done + 1, n)`, where `done` is the sources at `awaiting_map` or later. 0 of 4 done shows "1 of 4", 3 done shows "4 of 4", and 4 done shows "4 of 4".
+    - The domain shown is the first source still in flight.
+  - **`understanding` with sources:** it shows "Understanding your goal…" **and** the list of the learner's sources with their steppers, so parallel reading is visible.
+  - **"Use it anyway":**
+    - Clicking it disables the button at once, which stays pending until the action returns.
+    - After a refresh, the source is `queued` or `processing`, so it shows its stepper and no button. There's no double submit.
   - **No chips:** no `link` named `/^Search the web for/` is rendered anywhere in the goal page components.
 - [ ] **Step 2: Run them.**
   - Run: `npx vitest run`
