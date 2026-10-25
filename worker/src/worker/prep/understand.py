@@ -12,7 +12,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel
 
-from worker.goal_ready import finish_reading
+from worker.goal_ready import finish_reading, queue_job
 from worker.jobs import Job, PermanentJobError
 from worker.llm import LLM, LLMOutputError, LLMRefusal
 
@@ -142,4 +142,4 @@ def _move_on(conn: psycopg.Connection, goal_id: UUID, intent: str, subject: str,
         # The learner's sources may already be read (they started with the goal).
         finish_reading(conn, goal_id)
     else:
-        conn.execute("insert into jobs (kind, payload) values ('find_sources', %s)", (Jsonb({"goal_id": str(goal_id)}),))
+        queue_job(conn, "find_sources", goal_id)

@@ -8,7 +8,7 @@ from uuid import UUID
 
 import psycopg
 
-from worker.goal_ready import _queue, search_again_or_fall_back, starting_point_map
+from worker.goal_ready import queue_job, search_again_or_fall_back, starting_point_map
 from worker.jobs import Job
 from worker.llm import LLM
 from worker.prep.vet import is_vetted, load_for_check, vet
@@ -113,9 +113,9 @@ class CheckSourcesHandler:
             if moved:
                 conn.execute("update sources set vetted = true where goal_id = %s and status = 'awaiting_map'"
                              " and vetted is null", (goal_id,))
-                _queue(conn, "topic_map", goal_id)
+                queue_job(conn, "topic_map", goal_id)
 
 
 def _build(conn: psycopg.Connection, goal_id: UUID) -> None:
     conn.execute("update goals set map_status = 'building_map' where id = %s", (goal_id,))
-    _queue(conn, "topic_map", goal_id)
+    queue_job(conn, "topic_map", goal_id)

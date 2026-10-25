@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { FormError } from "@/components/form-error";
 import { button } from "@/components/ui/buttons";
 import { StatusChip } from "@/components/ui/chips";
 import { Icon, type IconName } from "@/components/ui/icon";
@@ -97,7 +98,7 @@ function SourceStatus({
             Use it anyway
           </button>
         )}
-        {error && <p role="alert" className="text-body-m text-on-negative">{error}</p>}
+        {error && <FormError error={error} />}
       </>
     );
   }

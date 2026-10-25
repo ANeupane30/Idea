@@ -7,12 +7,11 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 import psycopg
-from psycopg.types.json import Jsonb
 
 from worker.config import Settings
 from worker.discovery import tavily, wikipedia
 from worker.discovery.tavily import QuotaExhausted, TavilyHit
-from worker.goal_ready import finish_reading
+from worker.goal_ready import finish_reading, starting_point_map
 from worker.ingest.urls import url_key
 from worker.jobs import Job
 
@@ -109,12 +108,7 @@ class FindSourcesHandler:
             if locked is None or locked["map_status"] != "finding_sources":
                 return
             if not candidates and not existing:
-                # Nothing to learn from: a starting-point map from the intent, said so on the page.
-                conn.execute(
-                    "update goals set map_status = 'building_map', map_note = 'starting_point', expand = true"
-                    " where id = %s", (goal_id,),
-                )
-                conn.execute("insert into jobs (kind, payload) values ('topic_map', %s)", (Jsonb({"goal_id": str(goal_id)}),))
+                starting_point_map(conn, goal_id)  # nothing to learn from
                 return
             # Sources join a goal that has no map yet the same way the learner's own do at creation.
             conn.execute("select set_config('app.creating_goal', %s, true)", (str(goal_id),))
@@ -138,9 +132,6 @@ class FindSourcesHandler:
         """Search broke: carry on with a starting-point map rather than leave the goal waiting."""
         goal_id = UUID(str(job.payload["goal_id"]))
         with conn.transaction():
-            moved = conn.execute(
-                "update goals set map_status = 'building_map', map_note = 'starting_point', expand = true"
-                " where id = %s and map_status = 'finding_sources' returning id", (goal_id,),
-            ).fetchone()
-            if moved:
-                conn.execute("insert into jobs (kind, payload) values ('topic_map', %s)", (Jsonb({"goal_id": str(goal_id)}),))
+            locked = conn.execute("select map_status from goals where id = %s for update", (goal_id,)).fetchone()
+            if locked is not None and locked["map_status"] == "finding_sources":
+                starting_point_map(conn, goal_id)
