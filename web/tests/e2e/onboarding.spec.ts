@@ -15,7 +15,12 @@ async function startWith(page: Page, title: string, links: string[] = []) {
   }
   await page.getByRole("button", { name: "Build my learning map" }).click();
   await expect(page).toHaveURL(/\/goals\/[0-9a-f-]{36}/);
-  await expect(page.getByRole("navigation", { name: "Topic map" })).toBeVisible({ timeout: 30_000 });
+  // A single short article asks whether to expand before the map is built (stage 2).
+  const map = page.getByRole("navigation", { name: "Topic map" });
+  const keepSmall = page.getByRole("button", { name: "Keep it small" });
+  await expect(map.or(keepSmall)).toBeVisible({ timeout: 45_000 });
+  if (await keepSmall.isVisible()) await keepSmall.click();
+  await expect(map).toBeVisible({ timeout: 45_000 });
 }
 
 test("pick for me adds a source and the first lesson has content", async ({ page }) => {

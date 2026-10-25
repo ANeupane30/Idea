@@ -97,7 +97,7 @@ def test_outline_items():
     out = extract_outline(OUTLINE)
     assert [(h.title, h.level) for h in out.headings] == [("Basics", 1), ("Tables", 2), ("Joins", 1), ("Indexes", 1)]
     assert [s.text for s in out.segments] == ["1. Basics", "- Tables", "2. Joins", "3. Indexes"]
-    assert out.title is None
+    assert out.title == "Your outline"
 
 
 def test_outline_headings_without_markers():
@@ -166,4 +166,5 @@ def test_handler_ingests_an_outline_without_fetching(db, make_user, make_goal):
         (sid,),
     ).fetchone()
     assert row["status"] == "awaiting_map" and row["type"] == "outline"
+    assert db.execute("select title from sources where id = %s", (sid,)).fetchone()["title"] == "Your outline"
     assert [i["id"] for i in row["structure"]] == ["O1", "O2", "O3", "O4"]

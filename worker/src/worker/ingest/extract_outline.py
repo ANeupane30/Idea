@@ -6,6 +6,7 @@ import re
 from worker.ingest.types import Extracted, Heading, Segment
 
 ANCHOR_WORDS = 10
+TITLE = "Your outline"
 _MARKER = re.compile(r"^(\d+[.)]|[-*•]|#{1,2}\s|[A-Z][^a-z\s]{0,3}[.)]\s)\s*")
 MAX_TITLE_LIKE = 80
 
@@ -31,4 +32,4 @@ def extract_outline(text: str) -> Extracted:
             headings.append(Heading(title, 1, title))
         elif indented and (marked or _title_like(line)):
             headings.append(Heading(title, 2, title))
-    return Extracted(title=None, segments=segments, headings=headings)
+    return Extracted(title=TITLE, segments=segments, headings=headings)
