@@ -92,8 +92,17 @@ def mark_ready_if_matching(conn: psycopg.Connection, goal_id: UUID) -> bool:
 
 
 def sweep_matching_deadlines(conn: psycopg.Connection) -> int:
-    """Goals past their gap deadline are shown with what they have (gap sources keep matching after)."""
+    """Goals past their gap deadline are shown with what they have (gap sources keep matching after).
+
+    Also a backstop: a goal still matching with nothing in flight and no gap phase moves on."""
     with conn.transaction():
+        idle = conn.execute(
+            "select id from goals g where map_status = 'matching_sources' and gap_deadline is null"
+            " and not exists (select 1 from sources s where s.goal_id = g.id"
+            " and s.status in ('queued', 'processing', 'awaiting_map'))"
+        ).fetchall()
+        for row in idle:
+            finish_matching(conn, row["id"])
         rows = conn.execute(
             "update goals set map_status = 'ready' where map_status = 'matching_sources'"
             " and gap_deadline <= now() returning id"
@@ -129,15 +138,10 @@ def starting_point_map(conn: psycopg.Connection, goal_id: UUID) -> None:
 
 
 def search_again_or_fall_back(conn: psycopg.Connection, goal_id: UUID) -> None:
-    """Too little found material: one more search round with plainer queries, then a starting point."""
-    goal = conn.execute("select search_round, coalesce(search_subject, title) as subject from goals where id = %s",
-                        (goal_id,)).fetchone()
+    """Too little found material: one more round from Wikipedia (spec §8), then a starting point."""
+    goal = conn.execute("select search_round from goals where id = %s", (goal_id,)).fetchone()
     if goal["search_round"] < 1:
-        subject = goal["subject"]
-        conn.execute(
-            "update goals set search_round = 1, search_queries = %s, map_status = 'finding_sources' where id = %s",
-            (Jsonb([f"{subject} tutorial", f"{subject} course"]), goal_id),
-        )
+        conn.execute("update goals set search_round = 1, map_status = 'finding_sources' where id = %s", (goal_id,))
         _queue(conn, "find_sources", goal_id)
     else:
         starting_point_map(conn, goal_id)
@@ -166,11 +170,12 @@ def finish_reading(conn: psycopg.Connection, goal_id: UUID, *, force: bool = Fal
         conn.execute("update goals set map_status = 'checking_sources' where id = %s", (goal_id,))
         _queue(conn, "check_sources", goal_id)
         return True
-    has_own = conn.execute(
-        "select exists (select 1 from sources where goal_id = %s and origin = 'user') as own", (goal_id,)
-    ).fetchone()["own"]
-    if has_own:
-        # None of the learner's own sources could be read: they decide what happens next.
+    ask = conn.execute(
+        "select source_choice is null and exists (select 1 from sources s where s.goal_id = g.id and s.origin = 'user')"
+        " as ask from goals g where id = %s", (goal_id,),
+    ).fetchone()["ask"]
+    if ask:
+        # None of the learner's own sources could be read: they decide what happens next (once).
         conn.execute("update goals set map_status = 'awaiting_source_decision' where id = %s", (goal_id,))
     else:
         search_again_or_fall_back(conn, goal_id)

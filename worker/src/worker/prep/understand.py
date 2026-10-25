@@ -129,7 +129,7 @@ def _move_on(conn: psycopg.Connection, goal_id: UUID, intent: str, subject: str,
     if locked is None or locked["map_status"] != "understanding":
         return
     has_sources = conn.execute(
-        "select exists (select 1 from sources where goal_id = %s and origin = 'user' and status <> 'failed') as has",
+        "select exists (select 1 from sources where goal_id = %s and origin = 'user') as has",
         (goal_id,),
     ).fetchone()["has"]
     conn.execute(

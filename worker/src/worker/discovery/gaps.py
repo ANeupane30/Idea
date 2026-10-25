@@ -16,7 +16,7 @@ from worker.discovery import quota, tavily, wikipedia
 from worker.discovery.handler import COVERED, UNCOVERED_SQL
 from worker.discovery.tavily import QuotaExhausted
 from worker.jobs import Job
-from worker.prep.find import url_key
+from worker.ingest.urls import url_key
 
 log = logging.getLogger(__name__)
 

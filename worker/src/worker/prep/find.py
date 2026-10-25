@@ -12,7 +12,8 @@ from psycopg.types.json import Jsonb
 from worker.config import Settings
 from worker.discovery import tavily, wikipedia
 from worker.discovery.tavily import QuotaExhausted, TavilyHit
-from worker.ingest.urls import normalize_url
+from worker.goal_ready import finish_reading
+from worker.ingest.urls import url_key
 from worker.jobs import Job
 
 log = logging.getLogger(__name__)
@@ -22,15 +23,6 @@ MAX_VIDEOS = {"visual_video": 3}
 DEFAULT_MAX_VIDEOS = 2
 WIKI_CANDIDATES = 4
 MIN_WORDS = 300
-
-
-def url_key(url: str) -> str:
-    """One key per page: tracking parameters, fragments and a trailing slash don't count."""
-    key = normalize_url(url)
-    parts = urlsplit(key)
-    if parts.path not in ("", "/") and key.endswith("/"):
-        key = key[:-1]
-    return key
 
 
 def _domain(url: str) -> str:
@@ -75,7 +67,7 @@ class FindSourcesHandler:
         goal_id = UUID(str(job.payload["goal_id"]))
         with conn.transaction():
             goal = conn.execute(
-                "select g.user_id, g.title, g.map_status, g.search_subject, g.search_queries,"
+                "select g.user_id, g.title, g.map_status, g.search_subject, g.search_queries, g.search_round,"
                 " coalesce(p.learning_style, 'reading') as style"
                 " from goals g left join learning_prefs p on p.user_id = g.user_id where g.id = %s",
                 (goal_id,),
@@ -91,7 +83,9 @@ class FindSourcesHandler:
 
         candidates: list[tuple[str, str, float | None]] = []  # (type, url, score)
         reason = None
-        if not self._s.tavily_api_key:
+        if goal["search_round"] >= 1:
+            reason = "too few sources passed"
+        elif not self._s.tavily_api_key:
             reason = "no Tavily key"
         else:
             try:
@@ -132,9 +126,10 @@ class FindSourcesHandler:
                 )
             conn.execute("select set_config('app.creating_goal', '', true)")
             conn.execute(
-                "update goals set map_status = 'reading_sources', reading_started_at = coalesce(reading_started_at, now())"
-                " where id = %s", (goal_id,),
+                "update goals set map_status = 'reading_sources', reading_started_at = now() where id = %s", (goal_id,)
             )
+            if not candidates:
+                finish_reading(conn, goal_id)  # what the goal already has was read before
 
     def on_retry(self, conn: psycopg.Connection, job: Job) -> None:
         pass

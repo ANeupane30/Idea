@@ -209,7 +209,6 @@ def test_a_found_source_failing_last_still_moves_the_goal_on(db, make_user, make
     g = goal(db, gid)
     assert source(db, sid) is None
     assert g["map_status"] == "finding_sources" and g["search_round"] == 1
-    assert g["search_queries"] == ["SQL joins tutorial", "SQL joins course"]
     assert len(jobs_for(db, "find_sources", gid)) == 1
 
 

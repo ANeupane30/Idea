@@ -84,13 +84,15 @@ class CheckSourcesHandler:
             "select count(*) filter (where status = 'awaiting_map' and origin = 'user' and vetted = false) as rejected_own,"
             " count(*) filter (where status = 'awaiting_map' and vetted) as vetted,"
             " bool_or(origin = 'user') as has_own,"
-            " (select search_round from goals where id = %(g)s) as round"
+            " (select search_round from goals where id = %(g)s) as round,"
+            " (select source_choice from goals where id = %(g)s) as choice"
             " from sources where goal_id = %(g)s",
             {"g": goal_id},
         ).fetchone()
-        if c["rejected_own"]:
+        counts_own = c["has_own"] and c["choice"] is None  # after "find", only found material counts
+        if c["rejected_own"] and c["choice"] is None:
             conn.execute("update goals set map_status = 'awaiting_source_decision' where id = %s", (goal_id,))
-        elif not c["has_own"] and c["vetted"] < MIN_VETTED and c["round"] < 1:
+        elif not counts_own and c["vetted"] < MIN_VETTED and c["round"] < 1:
             search_again_or_fall_back(conn, goal_id)  # found material only, and too little of it passed
         elif c["vetted"] == 0:
             starting_point_map(conn, goal_id)

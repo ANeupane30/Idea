@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(23);
+select plan(25);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-0000000009a0', 'fa@example.com'),
@@ -16,6 +16,11 @@ select set_config('app.creating_goal', '10000000-0000-0000-0000-0000000009d1', t
 insert into public.sources (id, goal_id, user_id, type, url_or_file, status, vetted, vet_reason) values
   ('30000000-0000-0000-0000-0000000009d1', '10000000-0000-0000-0000-0000000009d1', '00000000-0000-0000-0000-0000000009a0',
    'web', 'https://a.example/signup', 'awaiting_map', false, 'A sign-up page, not course content.');
+select set_config('app.creating_goal', '10000000-0000-0000-0000-0000000009d2', true);
+insert into public.sources (id, goal_id, user_id, type, url_or_file, status, vetted, vet_reason) values
+  ('30000000-0000-0000-0000-0000000009d2', '10000000-0000-0000-0000-0000000009d2', '00000000-0000-0000-0000-0000000009a0',
+   'web', 'https://a.example/off', 'awaiting_map', false, 'Off-topic.');
+update public.goals set reading_started_at = now() - interval '6 minutes' where id = '10000000-0000-0000-0000-0000000009d2';
 select set_config('app.creating_goal', '', true);
 insert into public.sources (id, goal_id, user_id, type, url_or_file, status, vetted, vet_reason) values
   ('30000000-0000-0000-0000-0000000009d3', '10000000-0000-0000-0000-0000000009d3', '00000000-0000-0000-0000-0000000009a0',
@@ -76,6 +81,11 @@ select is((select g.map_status || ':' || s.vetted::text from public.goals g join
   'building_map:true', 'use: the learner''s sources count as vetted and the map is built');
 select is((select (select array_agg(kind) from j where title = 'Decide') || (select array_agg(kind) from j where title = 'Decide 2')),
   array['topic_map', 'find_sources'], 'use queues the map; find queues the search');
+select is((select status || ':' || vetted::text from public.sources where id = '30000000-0000-0000-0000-0000000009d2'),
+  'ready:false', 'find: the learner''s rejected source stays listed as not used');
+select is((select source_choice || ':' || (reading_started_at is null)::text from public.goals
+           where id = '10000000-0000-0000-0000-0000000009d2'),
+  'find:true', 'find: the choice is kept and the next reading phase gets its own timer');
 
 -- ------------------------------------------------------------- use it anyway, quota table, statuses
 set local role authenticated;

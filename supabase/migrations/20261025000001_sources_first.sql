@@ -3,6 +3,9 @@
 
 -- ------------------------------------------------------------- statuses and columns
 
+-- Goals waiting on the old expand question are built as they are (answer_expand queued this job).
+insert into public.jobs (kind, payload)
+select 'topic_map', jsonb_build_object('goal_id', id) from public.goals where map_status = 'awaiting_expand';
 update public.goals set map_status = 'building_map' where map_status = 'awaiting_expand';
 alter table public.goals drop constraint goals_map_status_check;
 alter table public.goals add constraint goals_map_status_check check (map_status in (

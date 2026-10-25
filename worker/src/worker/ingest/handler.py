@@ -421,6 +421,7 @@ class IngestHandler:
             ).fetchone()
             if locked is None or locked["status"] != "processing":
                 log.info("source %s changed during ingestion; not writing", source_id)
+                finish_matching(conn, src["goal_id"])
                 return
             conn.execute("delete from source_coverage where source_id = %s", (source_id,))
             with conn.cursor() as cur:
@@ -437,6 +438,7 @@ class IngestHandler:
             if src["origin"] == "auto" and relevance < MAIN_REFERENCE_MIN:
                 # An automatic source that turned out off-topic doesn't help: the learner only sees ones that do.
                 conn.execute("delete from sources where id = %s", (source_id,))
+                finish_matching(conn, src["goal_id"])
                 return
             # A matched topic without a main reference (maps built from the goal alone) gets its closest chunk.
             for sid, rel, _ in rows:

@@ -72,6 +72,17 @@ test("a sign-in-wall link asks before searching", async ({ page }) => {
   await expect(sources(page).getByRole("listitem").filter({ hasText: PAYWALLED })).toBeVisible();
 });
 
+test("an off-topic link, then find sources for me, gives a map (the question is asked once)", async ({ page }) => {
+  await start(page, freshGoal(), { links: [OFFTOPIC_NOTE] });
+  await expect(page.getByRole("heading", { name: DECISION })).toBeVisible({ timeout: 45_000 });
+  await page.getByRole("button", { name: "Find sources for me" }).click();
+  await expect(map(page)).toBeVisible({ timeout: 80_000 });
+  await expect(sources(page)).toContainText("Discoverme guide one: SQL joins");
+  await expect(sources(page).getByRole("listitem").filter({ hasText: "An offtopic note on tomato gardening" })).toContainText(
+    "Not used:",
+  );
+});
+
 test("use mine anyway builds from the learner's source", async ({ page }) => {
   await start(page, "Learn SQL", { links: [OFFTOPIC_NOTE] });
   await expect(page.getByRole("heading", { name: DECISION })).toBeVisible({ timeout: 45_000 });
