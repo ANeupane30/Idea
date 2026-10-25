@@ -18,7 +18,7 @@ from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
 from worker.config import DEFAULT_USER_AGENT
-from worker.goal_ready import maybe_start_discovery
+from worker.goal_ready import finish_reading, maybe_start_discovery
 from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
@@ -180,6 +180,8 @@ class IngestHandler:
                 " title = coalesce(%s, file_name, url_or_file) where id = %s and status = 'processing'",
                 (title, src["id"]),
             )
+            if src["origin"] == "user":
+                finish_reading(conn, src["goal_id"])
             return True
 
     def _identify(self, src) -> tuple[str, str, bytes | None]:
@@ -403,4 +405,5 @@ class IngestHandler:
                 "update sources set status = 'failed', error = %s, step = null, delayed = false where id = %s",
                 (message, source_id),
             )
+            finish_reading(conn, src["goal_id"])
             maybe_start_discovery(conn, src["goal_id"])
