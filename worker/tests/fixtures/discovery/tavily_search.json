@@ -1,0 +1,10 @@
+{
+  "query": "plant growth simulation tutorial",
+  "results": [
+    {"title": "L-systems: modelling plant growth", "url": "https://algorithmicbotany.org/papers/abop/abop.pdf", "content": "Lindenmayer systems describe plant development.", "score": 0.91},
+    {"title": "Procedural plants in Python", "url": "https://realpython.com/procedural-plants/?utm_source=tavily#intro", "content": "Grow a plant with turtle graphics.", "score": 0.84},
+    {"title": "Simulating plant growth (video)", "url": "https://www.youtube.com/watch?v=abcDEF12345", "content": "A video lesson.", "score": 0.80},
+    {"title": "Short video", "url": "https://youtu.be/zyxWVU98765", "content": "Another video.", "score": 0.70}
+  ],
+  "response_time": 1.2
+}

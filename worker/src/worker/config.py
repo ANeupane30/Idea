@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     discovery_enabled: bool = True
     wikipedia_api_url: str = "https://en.wikipedia.org/w/api.php"
     wikipedia_article_url: str = "https://en.wikipedia.org/wiki/{title}"
+    # Tavily web search finds learning material (sources first); without a key, Wikipedia.
+    tavily_api_key: str | None = None
+    tavily_url: str = "https://api.tavily.com/search"
+    tavily_monthly_credits: int = 1000
+    # Job threads per worker process (each with its own database connection).
+    worker_concurrency: int = 3
     # Optional: without it, Visual / Video learners get Wikipedia articles only.
     youtube_api_key: str | None = None
     youtube_api_url: str = "https://www.googleapis.com/youtube/v3/search"
