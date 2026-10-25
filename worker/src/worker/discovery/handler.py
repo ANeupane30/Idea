@@ -3,6 +3,7 @@ to the top-level topics the learner's sources don't cover. Runs once per goal af
 is ready; the sources it adds go through the normal ingestion pipeline as origin = 'auto'."""
 
 import logging
+import re
 from collections.abc import Callable
 from uuid import UUID
 
@@ -31,6 +32,16 @@ where t.goal_id = %(goal)s and t.parent_id is null
     where (x.id = t.id or x.parent_id = t.id) and c.relevance >= %(covered)s)
 order by t.position
 """
+
+
+# As the web's goalTopic: search for the subject, not the learner's phrasing around it.
+_LEADING_VERBS = re.compile(r"^(learn the basics of|learn about|learn|how to|understand|master)\s+", re.I)
+
+
+def goal_topic(goal_title: str) -> str:
+    """The subject of a goal: "Learn the basics of personal finance" -> "personal finance"."""
+    title = goal_title.strip()
+    return _LEADING_VERBS.sub("", title).strip() or title
 
 
 class _Stop(Exception):
@@ -89,7 +100,7 @@ class DiscoverHandler:
         want_videos = goal["style"] == "visual_video" and self._s.youtube_api_key and wikipedia_for is None
         try:
             for i, topic in enumerate(topics):
-                query = f"{topic['title']} {goal['title']}"
+                query = f"{topic['title']} {goal_topic(goal['title'])}"
                 if want_videos and i < MAX_VIDEOS and videos_left > 0:
                     ids = self._yt(query, api_key=self._s.youtube_api_key, api_url=self._s.youtube_api_url)
                     url = next((u for u in (f"https://www.youtube.com/watch?v={v}" for v in ids) if u not in urls), None)

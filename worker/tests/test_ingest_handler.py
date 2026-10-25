@@ -523,3 +523,16 @@ class SpyRendererFor:
 
     def render(self, url):
         return self.html
+
+
+def test_off_topic_automatic_source_is_removed(db, make_user, make_ready_goal):
+    uid = make_user()
+    gid = make_ready_goal(uid)
+    sid = db.execute(
+        "insert into sources (user_id, goal_id, type, url_or_file, origin) values (%s, %s, 'web', %s, 'auto')"
+        " returning id",
+        (uid, gid, "http://127.0.0.1/bread.html"),
+    ).fetchone()["id"]
+    handler(site=Site(BAKING)).run(db, job(sid))
+    assert source(db, sid) is None  # the learner only sees automatic sources that help
+
