@@ -492,7 +492,7 @@ def test_main_registers_ingest(monkeypatch):
     handlers = main_mod.build_handlers(
         Settings(llm_provider="fake", embedder="fake", supabase_secret_key="key")
     )
-    assert set(handlers) == {"topic_map", "ingest_source", "quiz_bank"}
+    assert set(handlers) == {"topic_map", "ingest_source", "quiz_bank", "discover_sources"}
     with pytest.raises(RuntimeError, match="SUPABASE_SECRET_KEY"):
         main_mod.build_handlers(Settings(llm_provider="fake", embedder="fake", supabase_secret_key=None))
 
@@ -500,3 +500,26 @@ def test_main_registers_ingest(monkeypatch):
 def test_not_found_source_is_noop(db):
     handler().run(db, job(uuid.uuid4()))
 
+
+
+def test_paywalled_source_fails_without_using_an_attempt(db, make_user, make_ready_goal, make_source):
+    from test_extract_web import SIGN_IN
+
+    uid = make_user()
+    gid = make_ready_goal(uid)
+    sid = make_source(uid, gid, "http://127.0.0.1/members")
+    run_queued(db, handler(Site(SIGN_IN), renderer=SpyRendererFor(SIGN_IN)), sid)
+    s = source(db, sid)
+    assert s["status"] == "failed" and s["error"] == messages.PAYWALLED
+    left = db.execute(
+        "select count(*) as n from jobs where kind = 'ingest_source' and payload->>'source_id' = %s", (str(sid),)
+    ).fetchone()["n"]
+    assert left == 0  # attempts are counted from jobs: this one doesn't count
+
+
+class SpyRendererFor:
+    def __init__(self, html):
+        self.html = html
+
+    def render(self, url):
+        return self.html

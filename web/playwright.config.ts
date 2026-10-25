@@ -36,7 +36,14 @@ export default defineConfig({
       command: "uv run --directory ../worker python -m worker",
       wait: { stdout: /worker started/ },
       // Fake LLM and embeddings; private hosts allowed so it can fetch the fixture site below.
-      env: { LLM_PROVIDER: "fake", EMBEDDER: "fake", FETCH_ALLOW_PRIVATE_HOSTS: "true" },
+      env: {
+        LLM_PROVIDER: "fake",
+        EMBEDDER: "fake",
+        FETCH_ALLOW_PRIVATE_HOSTS: "true",
+        // Discovery searches the fixture site's fake Wikipedia (see fixtures/server.py).
+        WIKIPEDIA_API_URL: "http://127.0.0.1:8765/w/api.php",
+        WIKIPEDIA_ARTICLE_URL: "http://127.0.0.1:8765/wiki/{title}.html",
+      },
       reuseExistingServer: false,
       timeout: 60_000,
     },
@@ -51,7 +58,7 @@ export default defineConfig({
     {
       // Fixture pages that e2e tests add as web sources.
       command:
-        "uv run --directory ../worker python -m http.server 8765 --bind 127.0.0.1 --directory ../web/tests/e2e/fixtures/site",
+        "uv run --directory ../worker python ../web/tests/e2e/fixtures/server.py",
       url: "http://127.0.0.1:8765/sql-article.html",
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,

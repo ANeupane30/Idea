@@ -1,11 +1,9 @@
 "use client";
 
-import { useActionState, useId } from "react";
-import { FormatCards } from "@/components/format-cards";
-import { FORMATS } from "@/lib/lessons";
+import { useActionState } from "react";
 import { FilterChip } from "@/components/ui/chips";
 import { button } from "@/components/ui/buttons";
-import type { ActionResult } from "@/lib/validation";
+import { LEARNING_STYLES, STYLE_LABELS, type ActionResult } from "@/lib/validation";
 
 const LEVELS = [
   { value: "beginner", label: "Beginner" },
@@ -15,12 +13,12 @@ const LEVELS = [
 
 type Props = {
   action: (formData: FormData) => Promise<ActionResult>;
-  format: string;
+  /** The learner's style; it sets their default lesson format. */
+  learningStyle: string;
   level: string;
 };
 
-export function PreferencesForm({ action, format, level }: Props) {
-  const formatsId = useId();
+export function PreferencesForm({ action, learningStyle, level }: Props) {
   const [state, formAction, pending] = useActionState<ActionResult | null, FormData>(
     async (_prev, formData) => {
       const result = await action(formData);
@@ -32,14 +30,20 @@ export function PreferencesForm({ action, format, level }: Props) {
   return (
     <form action={formAction} className="flex flex-col gap-6">
       <fieldset className="flex flex-col gap-2">
-        <legend id={formatsId} className="mb-2 text-title-m text-on-surface">
-          How do you like to learn?
-        </legend>
-        <FormatCards
-          name="preferred_format"
-          labelledBy={formatsId}
-          defaultValue={FORMATS.find((f) => f === format) ?? "text"}
-        />
+        <legend className="mb-2 text-title-m text-on-surface">How do you like to learn?</legend>
+        <div className="flex flex-wrap gap-2">
+          {LEARNING_STYLES.map((s) => (
+            <FilterChip
+              key={s}
+              label={STYLE_LABELS[s]}
+              type="radio"
+              name="learning_style"
+              value={s}
+              defaultChecked={(LEARNING_STYLES.includes(learningStyle as never) ? learningStyle : "reading") === s}
+              required
+            />
+          ))}
+        </div>
       </fieldset>
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-2 text-title-m text-on-surface">What is your level?</legend>

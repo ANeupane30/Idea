@@ -7,6 +7,8 @@ import psycopg
 
 from worker.config import Settings
 from worker.db import connect
+from worker.discovery.handler import DiscoverHandler
+from worker.goal_ready import sweep_reading_timeouts
 from worker.ingest.embed import make_embedder
 from worker.ingest.extract_web import PlaywrightRenderer
 from worker.ingest.extract_youtube import YouTubeTranscriptSource
@@ -38,6 +40,7 @@ def serve(
     poll_interval_s: float,
     sleep: Callable[[float], None] = time.sleep,
     run: Callable[[psycopg.Connection, dict[str, Handler]], bool] = run_once,
+    sweep: Callable[[psycopg.Connection], int] | None = None,
 ) -> None:
     """Process jobs forever. A lost database connection is replaced, with backoff."""
     conn: psycopg.Connection | None = None
@@ -56,6 +59,14 @@ def serve(
             try:
                 if conn is None or conn.closed:
                     conn = connect_fn()
+                if sweep is not None:
+                    try:
+                        sweep(conn)
+                    except psycopg.OperationalError:
+                        raise
+                    except Exception:
+                        log.exception("periodic sweep failed")
+                        conn.rollback()
                 idle = not run(conn, handlers)
                 backoff = RECONNECT_BACKOFF_START_S
             except psycopg.OperationalError:
@@ -90,12 +101,17 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         embedder=make_embedder(settings),
         storage=SupabaseStorage(settings.supabase_url, settings.supabase_secret_key),
         renderer=PlaywrightRenderer(settings.fetch_allow_private_hosts),
-        transcripts=YouTubeTranscriptSource(),
+        transcripts=YouTubeTranscriptSource(api_key=settings.youtube_api_key),
         allow_private=settings.fetch_allow_private_hosts,
         user_agent=settings.fetch_user_agent,
     )
     quiz_bank = QuizBankHandler(llm, make_embedder(settings))
-    return {"topic_map": TopicMapHandler(llm), "ingest_source": ingest, "quiz_bank": quiz_bank}
+    return {
+        "topic_map": TopicMapHandler(llm),
+        "ingest_source": ingest,
+        "quiz_bank": quiz_bank,
+        "discover_sources": DiscoverHandler(settings),
+    }
 
 
 def main() -> None:
@@ -104,7 +120,7 @@ def main() -> None:
     )
     settings = Settings()
     log.info("worker started (provider=%s)", settings.llm_provider)
-    serve(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s)
+    serve(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s, sweep=sweep_reading_timeouts)
 
 
 if __name__ == "__main__":

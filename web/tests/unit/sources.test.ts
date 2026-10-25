@@ -7,10 +7,13 @@ import {
   isUploadPath,
   LABEL_TEXT,
   linkSchema,
+  mainReference,
+  PAYWALLED,
   searchQuery,
   STAGE_TEXT,
   stageOf,
   STEP_TEXT,
+  TYPE_TEXT,
   type NodeCoverage,
   type SourceRow,
 } from "@/lib/sources";
@@ -164,6 +167,8 @@ describe("stageOf", () => {
     ["processing", "embedding", 1],
     ["processing", "mapping", 2],
     ["ready", null, 3],
+    // Read before the map existed; next comes matching.
+    ["awaiting_map", null, 2],
   ] as const)("%s/%s is stage %i", (status, step, stage) => {
     expect(stageOf(row(status, step))).toEqual({ stage, failed: false });
   });
@@ -175,3 +180,48 @@ describe("stageOf", () => {
     expect(STAGE_TEXT).toEqual(["Fetching", "Reading", "Matching to your topics", "Ready"]);
   });
 });
+
+describe("mainReference", () => {
+  const ref = (o: Partial<Parameters<typeof mainReference>[0]>) =>
+    mainReference({
+      source_title: "T",
+      source_type: "web",
+      url_or_file: "https://a.example/x",
+      page: null,
+      timestamp_start: null,
+      anchor: null,
+      ...o,
+    });
+  it("links a web page to its passage", () => {
+    expect(ref({ anchor: "Inner joins keep rows" })).toEqual({
+      title: "T",
+      label: "",
+      href: "https://a.example/x#:~:text=Inner%20joins%20keep%20rows",
+    });
+  });
+  it("links a video to its moment", () => {
+    expect(ref({ source_type: "youtube", url_or_file: "https://youtu.be/abc123def45", timestamp_start: 135 })).toEqual({
+      title: "T",
+      label: "at 2:15",
+      href: "https://www.youtube.com/watch?v=abc123def45&t=135s",
+    });
+  });
+  it("names a PDF page without a link", () => {
+    expect(ref({ source_type: "pdf", page: 4 })).toEqual({ title: "T", label: "page 4", href: null });
+  });
+  it("an outline has no link", () => {
+    expect(ref({ source_type: "outline", url_or_file: "outline" })).toEqual({ title: "T", label: "", href: null });
+  });
+});
+
+describe("outline sources", () => {
+  it("are labelled Outline", () => {
+    expect(TYPE_TEXT.outline).toBe("Outline");
+  });
+  it("share the worker's paywall message", () => {
+    expect(PAYWALLED).toBe(
+      "We can't read this page, it needs a login. Paste the course's syllabus or table of contents instead.",
+    );
+  });
+});
+

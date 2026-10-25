@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     openrouter_models_smart: str = "nvidia/nemotron-3.5-super-vl:free,openrouter/free"
     openrouter_models_fast: str = "nvidia/nemotron-3.5-super-vl:free,openrouter/free"
     poll_interval_s: float = 2.0
+    # Automatic sources for topics the learner's own sources don't cover.
+    discovery_enabled: bool = True
+    wikipedia_api_url: str = "https://en.wikipedia.org/w/api.php"
+    wikipedia_article_url: str = "https://en.wikipedia.org/wiki/{title}"
+    # Optional: without it, Visual / Video learners get Wikipedia articles only.
+    youtube_api_key: str | None = None
+    youtube_api_url: str = "https://www.googleapis.com/youtube/v3/search"
     # Tests only: lets the URL fetcher reach 127.0.0.1 and other private addresses.
     fetch_allow_private_hosts: bool = False
     fetch_user_agent: str = DEFAULT_USER_AGENT

@@ -141,3 +141,11 @@ def test_failed_top_up_keeps_a_working_bank_ready(db, make_user, make_ready_goal
     # ...leaves the 18 working questions in a ready bank, so top-ups can be queued again.
     assert bank(db, tid)["status"] == "ready"
     assert len(questions(db, tid)) == 18
+
+
+def test_quiz_bank_out_of_ai_quota_is_busy(db, make_user, make_ready_goal, make_source):
+    uid, _, tid = ready_topic(db, make_user, make_ready_goal, make_source)
+    jid = queue(db, uid, tid)
+    with db.transaction():
+        handler().on_permanent_failure(db, job(jid, uid, tid), jobs.AI_BUSY)
+    assert bank(db, tid)["status"] == "failed" and bank(db, tid)["error"] == "busy"

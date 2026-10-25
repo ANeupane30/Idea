@@ -10,12 +10,25 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
+import anthropic
+import openai
 import psycopg
 
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 4
 GENERIC_MESSAGE = "Something went wrong building this. Please try again."
+# Rate limits that outlast the retries: on OpenRouter's free models, usually the daily quota.
+AI_BUSY = "Our AI is busy right now. Try again later."
+
+
+def is_rate_limited(error: BaseException) -> bool:
+    return isinstance(error, (openai.RateLimitError, anthropic.RateLimitError))
+
+
+def final_message(error: Exception, default: str) -> str:
+    """The learner-facing message for a job that failed after its last retry."""
+    return AI_BUSY if is_rate_limited(error) else default
 
 
 @dataclass
@@ -124,7 +137,7 @@ def fail(conn: psycopg.Connection, job: Job, error: Exception, handler: Handler)
     if isinstance(error, PermanentJobError):
         _fail_permanently(conn, job, repr(error), error.message, handler, writes)
     elif job.attempts >= MAX_ATTEMPTS:
-        _fail_permanently(conn, job, repr(error), GENERIC_MESSAGE, handler, writes)
+        _fail_permanently(conn, job, repr(error), final_message(error, GENERIC_MESSAGE), handler, writes)
     else:
         with conn.transaction():
             _apply_pending(conn, writes)

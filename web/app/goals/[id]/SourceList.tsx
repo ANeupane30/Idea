@@ -4,7 +4,8 @@ import { useId } from "react";
 import { button } from "@/components/ui/buttons";
 import { StatusChip } from "@/components/ui/chips";
 import { Icon, type IconName } from "@/components/ui/icon";
-import { STAGE_TEXT, stageOf, TYPE_TEXT, type SourceRow } from "@/lib/sources";
+import { PAYWALLED, STAGE_TEXT, stageOf, TYPE_TEXT, type SourceRow } from "@/lib/sources";
+import { useAddSource } from "./add-source-context";
 import { GENERIC_ERROR } from "@/lib/validation";
 
 const OFF_TOPIC_NOTE = "Off-topic sources stay in your library but aren't used for lessons or quizzes.";
@@ -13,9 +14,11 @@ export const TYPE_ICON: Record<SourceRow["type"], IconName> = {
   web: "article",
   youtube: "smart_display",
   pdf: "picture_as_pdf",
+  outline: "format_list_bulleted",
 };
 
-export const sourceTitle = (s: SourceRow) => s.title ?? s.file_name ?? s.url_or_file;
+export const sourceTitle = (s: SourceRow) =>
+  s.title ?? s.file_name ?? (s.type === "outline" ? "Your outline" : s.url_or_file);
 
 /** The goal's sources: what each one is, how relevant it is and why. */
 export function SourceList({
@@ -55,6 +58,22 @@ export function SourceList({
 }
 
 function SourceStatus({ source: s, archived, onRetry }: { source: SourceRow; archived: boolean; onRetry: () => void }) {
+  const addSource = useAddSource();
+  if (s.status === "failed" && s.error === PAYWALLED) {
+    return (
+      <>
+        <p className="flex gap-1.5 text-body-m text-on-negative">
+          <Icon name="error" size={20} />
+          {s.error}
+        </p>
+        {!archived && addSource && (
+          <button type="button" onClick={() => addSource({ tab: "outline" })} className={button("text", "-ml-3 min-h-10")}>
+            Paste an outline
+          </button>
+        )}
+      </>
+    );
+  }
   if (s.status === "failed") {
     return (
       <>

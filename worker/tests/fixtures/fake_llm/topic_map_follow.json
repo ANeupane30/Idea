@@ -1,0 +1,10 @@
+{
+  "needs_clarification": false,
+  "clarifying_question": null,
+  "subtopics": [
+    {"title": "Tables", "summary": "How a database stores data in rows and columns.", "ref": "O1",
+     "children": [{"title": "Keys", "summary": "Columns that identify rows.", "ref": "S9.H9"}]},
+    {"title": "Joins", "summary": "Combining rows from related tables.", "ref": "O2", "children": []},
+    {"title": "Indexes", "summary": "Structures that make lookups fast.", "ref": "O3", "children": []}
+  ]
+}

@@ -62,6 +62,19 @@ describe("QuizRunner", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
+  it("says the AI is busy for a bank that ran out of AI quota, and can retry it", async () => {
+    actions.startQuiz.mockResolvedValue({ ok: true, data: { quiz_id: "z1", preparing: false } });
+    actions.nextQuestion
+      .mockResolvedValueOnce({ ok: true, data: { failed: true, error: "busy", subtopic_id: "t" } })
+      .mockResolvedValue({ ok: true, data: { ...QUESTION, total: 10 } });
+    actions.retryQuizBank.mockResolvedValue({ ok: true, data: null });
+    render(<QuizRunner goalId="g" subtopicId="t" mode="subtopic" title="Joins quiz" overview={null} />);
+    expect(await screen.findByText("Our AI is busy right now. Try again later.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Question 1 of 10")).toBeTruthy();
+    expect(actions.retryQuizBank).toHaveBeenCalledWith("t");
+  });
+
   it("retries the failed topic's bank in a review quiz", async () => {
     actions.startQuiz.mockResolvedValue({ ok: true, data: { quiz_id: "z1", preparing: false } });
     actions.nextQuestion
