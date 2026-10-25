@@ -26,10 +26,14 @@ async function WorkspaceSlot({
   goalId,
   goalTitle,
   archived,
+  discovering,
+  openAddSource,
 }: {
   goalId: string;
   goalTitle: string;
   archived: boolean;
+  discovering: boolean;
+  openAddSource: boolean;
 }) {
   const supabase = await createClient();
   const [viewer, { data: rows }, { data: sourceRows }, { data: masteryRows }] = await Promise.all([
@@ -58,6 +62,8 @@ async function WorkspaceSlot({
       archived={archived}
       isGuest={viewer.isGuest}
       sources={sources}
+      discovering={discovering}
+      openAddSource={openAddSource}
       map={<TopicMap goalId={goalId} goalTitle={goalTitle} tree={tree} coverage={coverage} mastery={mastery} />}
       suggestions={
         coverage &&
@@ -105,14 +111,17 @@ async function loadCoverage(goalId: string): Promise<Record<string, NodeCoverage
   return coverage;
 }
 
-async function Goal({ params }: { params: Promise<{ id: string }> }) {
+type PageProps = { params: Promise<{ id: string }>; searchParams: Promise<{ add?: string }> };
+
+async function Goal({ params, searchParams }: PageProps) {
   await connection();
   const { id } = await params;
+  const { add } = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const supabase = await createClient();
   const { data } = await supabase
     .from("goals")
-    .select("id, title, status, map_status, map_delayed, clarifying_question, map_error, map_level")
+    .select("id, title, status, map_status, map_delayed, clarifying_question, map_error, map_level, discovery_status")
     .eq("id", id)
     .maybeSingle();
   if (!data) notFound();
@@ -134,7 +143,13 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
       </div>
       <MapStatus goal={data}>
         {data.map_status === "ready" && (
-          <WorkspaceSlot goalId={data.id} goalTitle={data.title} archived={data.status === "archived"} />
+          <WorkspaceSlot
+            goalId={data.id}
+            goalTitle={data.title}
+            archived={data.status === "archived"}
+            discovering={data.discovery_status === "waiting" || data.discovery_status === "running"}
+            openAddSource={add === "source"}
+          />
         )}
       </MapStatus>
     </main>
@@ -142,10 +157,10 @@ async function Goal({ params }: { params: Promise<{ id: string }> }) {
   );
 }
 
-export default function GoalPage({ params }: { params: Promise<{ id: string }> }) {
+export default function GoalPage({ params, searchParams }: PageProps) {
   return (
     <Suspense fallback={<p className="p-6">Loading...</p>}>
-      <Goal params={params} />
+      <Goal params={params} searchParams={searchParams} />
     </Suspense>
   );
 }

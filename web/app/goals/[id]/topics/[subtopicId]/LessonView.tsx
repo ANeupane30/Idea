@@ -141,7 +141,11 @@ export function LessonView({
     body = (
       <div className="rounded-2xl bg-surface-container-high p-5">
         <p className="text-body-l text-on-surface">{LESSON_ERROR_TEXT.no_sources}</p>
-        <div className="mt-3">
+        <Link href={`${mapHref}?add=source`} className={button("filled", "mt-3")}>
+          <Icon name="add" size={20} />
+          Add a source
+        </Link>
+        <div className="mt-4">
           <SearchLinks query={searchQuery(goalTitle, subtopic.title)} />
         </div>
       </div>

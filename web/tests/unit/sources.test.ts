@@ -164,6 +164,8 @@ describe("stageOf", () => {
     ["processing", "embedding", 1],
     ["processing", "mapping", 2],
     ["ready", null, 3],
+    // Read before the map existed; next comes matching.
+    ["awaiting_map", null, 2],
   ] as const)("%s/%s is stage %i", (status, step, stage) => {
     expect(stageOf(row(status, step))).toEqual({ stage, failed: false });
   });

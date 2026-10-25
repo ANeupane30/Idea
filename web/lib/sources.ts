@@ -74,7 +74,7 @@ export type SourceRow = {
   url_or_file: string;
   file_name: string | null;
   title: string | null;
-  status: "queued" | "processing" | "ready" | "failed";
+  status: "queued" | "processing" | "awaiting_map" | "ready" | "failed";
   step: Exclude<SourceStep, "queued"> | null;
   delayed: boolean;
   error: string | null;
@@ -95,6 +95,8 @@ const STEP_STAGE: Record<Exclude<SourceStep, "queued">, 0 | 1 | 2> = {
 /** Which stage a source is at; a failed source keeps the stage it failed at. */
 export function stageOf(row: Pick<SourceRow, "status" | "step">): { stage: 0 | 1 | 2 | 3; failed: boolean } {
   if (row.status === "ready") return { stage: 3, failed: false };
+  // Read and indexed before the map existed: matching comes next.
+  if (row.status === "awaiting_map") return { stage: 2, failed: false };
   return { stage: row.step ? STEP_STAGE[row.step] : 0, failed: row.status === "failed" };
 }
 

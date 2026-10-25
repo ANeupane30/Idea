@@ -12,13 +12,13 @@ async function Form() {
   if (!data.user) redirect("/");
   const { data: prefs } = await supabase
     .from("learning_prefs")
-    .select("preferred_format, level")
+    .select("learning_style, level")
     .eq("user_id", data.user.id)
     .maybeSingle();
   return (
     <PreferencesForm
       action={savePreferences}
-      format={prefs?.preferred_format ?? "text"}
+      learningStyle={prefs?.learning_style ?? "reading"}
       level={prefs?.level ?? "beginner"}
     />
   );
