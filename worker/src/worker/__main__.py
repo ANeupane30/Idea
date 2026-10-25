@@ -1,11 +1,11 @@
 import logging
-import sys
 import threading
 import time
 from collections.abc import Callable
 
 import psycopg
 
+from worker.log_setup import configure_logging
 from worker.config import Settings
 from worker.db import connect
 from worker.discovery.gaps import FillGapsHandler
@@ -124,9 +124,7 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
 
 
 def main() -> None:
-    logging.basicConfig(
-        stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+    configure_logging()
     settings = Settings()
     n = max(1, settings.worker_concurrency)
     log.info("worker started (provider=%s, threads=%s)", settings.llm_provider, n)
