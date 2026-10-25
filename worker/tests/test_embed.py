@@ -54,7 +54,7 @@ def test_fast_embedders_share_one_model(monkeypatch):
     made = []
 
     class FakeTextEmbedding:
-        def __init__(self, name, cache_dir=None):
+        def __init__(self, name, cache_dir=None, threads=None):
             made.append((name, cache_dir))
 
         def passage_embed(self, texts):
@@ -66,3 +66,52 @@ def test_fast_embedders_share_one_model(monkeypatch):
     embed.FastEmbedder().embed_passages(["a"])
     embed.FastEmbedder().embed_passages(["b"])
     assert made == [("BAAI/bge-small-en-v1.5", "/opt/fastembed")]
+
+
+def test_fast_embedders_run_one_at_a_time_on_the_machines_cpus(monkeypatch):
+    """Seen on staging: three jobs embedding at once on 1 shared vCPU (each ONNX session sized to
+    the host's cores) took tens of minutes."""
+    import sys
+    import threading
+    import time
+    import types
+
+    from worker.ingest import embed
+
+    seen = {"now": 0, "max": 0, "threads": None}
+    guard = threading.Lock()
+
+    class FakeTextEmbedding:
+        def __init__(self, name, cache_dir=None, threads=None):
+            seen["threads"] = threads
+
+        def passage_embed(self, texts):
+            with guard:
+                seen["now"] += 1
+                seen["max"] = max(seen["max"], seen["now"])
+            time.sleep(0.05)
+            for t in texts:
+                yield [0.0] * 384
+            with guard:
+                seen["now"] -= 1
+
+    monkeypatch.setitem(sys.modules, "fastembed", types.SimpleNamespace(TextEmbedding=FakeTextEmbedding))
+    monkeypatch.setattr(embed.FastEmbedder, "_shared", None, raising=False)
+    monkeypatch.setattr(embed, "usable_cpus", lambda: 2)
+    workers = [threading.Thread(target=embed.FastEmbedder().embed_passages, args=(["a", "b"],)) for _ in range(3)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert seen["max"] == 1 and seen["threads"] == 2
+
+
+def test_usable_cpus_reads_the_cgroup_quota(tmp_path, monkeypatch):
+    from worker.ingest import embed
+
+    cpu_max = tmp_path / "cpu.max"
+    cpu_max.write_text("150000 100000\n")
+    monkeypatch.setattr(embed, "CGROUP_CPU_MAX", str(cpu_max))
+    assert embed.usable_cpus() == 1
+    cpu_max.write_text("max 100000\n")
+    assert embed.usable_cpus() >= 1

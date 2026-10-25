@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { FormError } from "@/components/form-error";
 import { button, field } from "@/components/ui/buttons";
 import { Icon } from "@/components/ui/icon";
 import { isPreparing, stageText } from "@/lib/prep";
@@ -148,7 +149,7 @@ export function MapStatus({
             </button>
           </div>
         )}
-        {error && <p role="alert" className="mt-2 text-body-m text-on-negative">{error}</p>}
+        {error && <FormError error={error} className="mt-2" />}
       </div>
     );
   }
@@ -182,7 +183,7 @@ export function MapStatus({
             </button>
           </form>
         )}
-        {error && <p role="alert" className="mt-2 text-body-m text-on-negative">{error}</p>}
+        {error && <FormError error={error} className="mt-2" />}
       </div>
     );
   }
@@ -203,7 +204,7 @@ export function MapStatus({
             Try again
           </button>
         )}
-        {error && <p role="alert" className="mt-2 text-body-m text-on-negative">{error}</p>}
+        {error && <FormError error={error} className="mt-2" />}
       </div>
     );
   }
