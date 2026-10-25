@@ -7,6 +7,7 @@ import psycopg
 
 from worker.config import Settings
 from worker.db import connect
+from worker.discovery.handler import DiscoverHandler
 from worker.ingest.embed import make_embedder
 from worker.ingest.extract_web import PlaywrightRenderer
 from worker.ingest.extract_youtube import YouTubeTranscriptSource
@@ -95,7 +96,12 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         user_agent=settings.fetch_user_agent,
     )
     quiz_bank = QuizBankHandler(llm, make_embedder(settings))
-    return {"topic_map": TopicMapHandler(llm), "ingest_source": ingest, "quiz_bank": quiz_bank}
+    return {
+        "topic_map": TopicMapHandler(llm),
+        "ingest_source": ingest,
+        "quiz_bank": quiz_bank,
+        "discover_sources": DiscoverHandler(settings),
+    }
 
 
 def main() -> None:
