@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getViewer } from "@/components/site-header";
 import { createClient } from "@/lib/supabase/server";
 import { FORMATS, type Format, type Lesson } from "@/lib/lessons";
+import { isPreparing } from "@/lib/prep";
 import { buildTree, type SubtopicRow } from "@/lib/topic-tree";
 import { LessonView } from "./LessonView";
 
@@ -16,10 +17,10 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
 
-  const [{ data: topic }, { data: goal }, { data: prefs }, { data: rows }, { data: covering }, { data: all }, viewer] =
+  const [{ data: topic }, { data: goal }, { data: prefs }, { data: rows }, { data: covering }, { data: all }, { data: reading }, viewer] =
     await Promise.all([
     supabase.from("subtopics").select("id, title, summary").eq("id", subtopicId).eq("goal_id", id).maybeSingle(),
-    supabase.from("goals").select("id, title").eq("id", id).maybeSingle(),
+    supabase.from("goals").select("id, title, map_status").eq("id", id).maybeSingle(),
     supabase
       .from("learning_prefs")
       .select("preferred_format, format_chosen")
@@ -41,6 +42,14 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
       .neq("sources.relevance_label", "off_topic")
       .limit(1),
     supabase.from("subtopics").select("id, parent_id, title, summary, position, user_edited").eq("goal_id", id),
+    // A source still being read (and not set aside by the check) may yet cover this topic.
+    supabase
+      .from("sources")
+      .select("id")
+      .eq("goal_id", id)
+      .in("status", ["queued", "processing", "awaiting_map"])
+      .or("vetted.is.null,vetted.eq.true")
+      .limit(1),
     getViewer(),
   ]);
   if (!topic || !goal) notFound();
@@ -65,6 +74,7 @@ async function Topic({ params }: { params: Promise<{ id: string; subtopicId: str
       formatChosen={prefs?.format_chosen ?? false}
       initialLessons={lessons}
       hasSources={(covering ?? []).length > 0}
+      sourcesPending={isPreparing(goal.map_status) || (reading ?? []).length > 0}
     />
   );
 }

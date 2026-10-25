@@ -38,7 +38,7 @@ test("pick for me adds a source and the first lesson has content", async ({ page
   await page.getByRole("button", { name: "Continue" }).click();
   const lesson = page.getByLabel("Lesson", { exact: true });
   await expect(lesson.locator("section").first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("None of your sources cover this topic yet.")).toHaveCount(0);
+  await expect(page.getByText("We couldn't find good material for this topic yet.")).toHaveCount(0);
 });
 
 test("links on the start form are read and matched", async ({ page }) => {

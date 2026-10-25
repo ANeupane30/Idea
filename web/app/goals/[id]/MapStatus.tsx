@@ -4,17 +4,15 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { button, field } from "@/components/ui/buttons";
 import { Icon } from "@/components/ui/icon";
+import { isPreparing, stageText } from "@/lib/prep";
 import { SOURCE_COLUMNS, stageOf, type SourceRow } from "@/lib/sources";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { GENERIC_ERROR } from "@/lib/validation";
-import { answerClarification, answerExpand, retryTopicMap } from "../actions";
+import { answerClarification, answerSourceDecision, retryTopicMap } from "../actions";
 import { sourceTitle, TYPE_ICON } from "./SourceList";
 import { SourceStepper } from "./SourceStepper";
 
-// Stages before the map exists; the page polls while a goal is in one of them.
-const WAITING = ["pending", "reading_sources", "building_map"];
-export const SHALLOW_QUESTION =
-  "This looks like a single article rather than a full curriculum. Expand this topic with related guides?";
+export const DECISION_HEADING = "Some of your sources don't look right for this goal.";
 
 export type MapGoal = {
   id: string;
@@ -25,47 +23,68 @@ export type MapGoal = {
   map_error: string | null;
 };
 
+type Topics = { ready: number; total: number };
+
+/**
+ * Everything before the map: the goal's preparation stages (with counts, kept live by polling the
+ * database, so a refresh or another device shows the same stage), the learner's decision about
+ * sources that didn't pass the check, a clarifying question, or a failure. The map (children) is
+ * shown only once the goal is ready.
+ */
 export function MapStatus({
   goal,
   sources: initialSources = [],
+  topics: initialTopics = null,
   children,
 }: {
   goal: MapGoal;
-  /** The learner's own sources, while they're read before the map. */
+  /** The goal's sources while it's prepared. */
   sources?: SourceRow[];
+  /** Top-level topics with a source, while lessons are prepared. */
+  topics?: Topics | null;
   children?: React.ReactNode;
 }) {
   const [sources, setSources] = useState(initialSources);
-  const [prevSources, setPrevSources] = useState(initialSources);
-  if (initialSources !== prevSources) {
-    setPrevSources(initialSources);
+  const [topics, setTopics] = useState(initialTopics);
+  const [prev, setPrev] = useState({ initialSources, initialTopics });
+  if (prev.initialSources !== initialSources || prev.initialTopics !== initialTopics) {
+    setPrev({ initialSources, initialTopics });
     setSources(initialSources);
+    setTopics(initialTopics);
   }
   const router = useRouter();
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const archived = goal.status === "archived";
-
-  // While the map is being built, poll just its status and refresh the page once when it changes.
-  // (Refreshing the whole page every 2 s raced React's commits and could crash the page.)
   const [delayed, setDelayed] = useState(goal.map_delayed);
   const [prevDelayed, setPrevDelayed] = useState(goal.map_delayed);
   if (goal.map_delayed !== prevDelayed) {
     setPrevDelayed(goal.map_delayed);
     setDelayed(goal.map_delayed);
   }
+
+  // Poll the goal (and its sources and topics) until it's ready, failed or asks a question; refresh
+  // once its stage changes. (Refreshing the whole page every 2 s raced React's commits.)
   useEffect(() => {
-    if (!WAITING.includes(goal.map_status)) return;
+    if (!isPreparing(goal.map_status) && goal.map_status !== "awaiting_source_decision") return;
     const supabase = createBrowserClient();
     let stopped = false;
-    const reading = goal.map_status === "reading_sources";
     const timer = setInterval(async () => {
-      const { data } = await supabase.from("goals").select("map_status, map_delayed").eq("id", goal.id).maybeSingle();
+      const [{ data }, { data: rows }, { data: cover }] = await Promise.all([
+        supabase.from("goals").select("map_status, map_delayed").eq("id", goal.id).maybeSingle(),
+        supabase.from("sources").select(SOURCE_COLUMNS).eq("goal_id", goal.id).order("created_at"),
+        goal.map_status === "matching_sources"
+          ? supabase.from("subtopic_coverage").select("state, subtopics!inner(parent_id)").eq("goal_id", goal.id)
+          : Promise.resolve({ data: null }),
+      ]);
       if (stopped || !data) return;
-      if (reading) {
-        const { data: rows } = await supabase.from("sources").select(SOURCE_COLUMNS).eq("goal_id", goal.id).order("created_at");
-        if (!stopped && rows) setSources(rows as SourceRow[]);
+      if (rows) setSources(rows as SourceRow[]);
+      if (cover) {
+        const tops = (cover as unknown as { state: string; subtopics: { parent_id: string | null } }[]).filter(
+          (c) => c.subtopics.parent_id === null,
+        );
+        setTopics({ ready: tops.filter((c) => c.state !== "gap").length, total: tops.length });
       }
       if (data.map_status !== goal.map_status) {
         stopped = true;
@@ -90,64 +109,44 @@ export function MapStatus({
     });
   }
 
-  if (goal.map_status === "reading_sources" || goal.map_status === "awaiting_expand") {
-    const asking = goal.map_status === "awaiting_expand";
+  if (isPreparing(goal.map_status)) {
+    const shown = goal.map_status === "understanding" ? sources.filter((s) => s.status !== "failed") : sources;
     return (
       <div className="mt-6 max-w-xl">
-        {asking ? (
-          <div className="rounded-2xl bg-surface-container-high p-5">
-            <p className="text-title-m text-on-surface">{SHALLOW_QUESTION}</p>
-            {!archived && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" disabled={isPending} onClick={() => run(() => answerExpand(goal.id, true))} className={button("filled")}>
-                  Expand
-                </button>
-                <button type="button" disabled={isPending} onClick={() => run(() => answerExpand(goal.id, false))} className={button("outlined")}>
-                  Keep it small
-                </button>
-              </div>
-            )}
-            {error && <p role="alert" className="mt-2 text-body-m text-on-negative">{error}</p>}
-          </div>
-        ) : (
-          <p role="status" className="flex items-center gap-2 text-body-l text-on-surface">
-            <Icon name="progress_activity" className="text-primary motion-safe:animate-spin" />
-            Reading your sources…
-          </p>
-        )}
-        <ul aria-label="Your sources" className="mt-4 flex flex-col gap-2">
-          {sources.map((s) => {
-            const { stage, failed } = stageOf(s);
-            return (
-              <li key={s.id} className="flex gap-4 rounded-2xl bg-surface-container-low p-4">
-                <Icon name={TYPE_ICON[s.type]} size={24} className="text-on-surface-variant" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-title-m text-on-surface [overflow-wrap:anywhere]">{sourceTitle(s)}</p>
-                  {failed ? (
-                    <p className="mt-1 flex gap-1.5 text-body-m text-on-negative">
-                      <Icon name="error" size={20} />
-                      {s.error ?? GENERIC_ERROR}
-                    </p>
-                  ) : (
-                    <SourceStepper stage={stage} />
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <p role="status" className="flex items-center gap-2 text-body-l text-on-surface">
+          <Icon name="progress_activity" className="text-primary motion-safe:animate-spin" />
+          {stageText(goal.map_status, sources, topics)}
+        </p>
+        {delayed && <p className="mt-1 text-body-m text-on-surface-variant">Processing is delayed. We&apos;ll keep trying.</p>}
+        {shown.length > 0 && goal.map_status !== "matching_sources" && <SourceProgress sources={shown} />}
       </div>
     );
   }
 
-  if (goal.map_status === "pending" || goal.map_status === "building_map") {
+  if (goal.map_status === "awaiting_source_decision") {
+    const failing = sources.filter((s) => s.vetted === false || s.status === "failed");
     return (
-      <div role="status" className="mt-6 text-body-l text-on-surface">
-        <p className="flex items-center gap-2">
-          <Icon name="progress_activity" className="text-primary motion-safe:animate-spin" />
-          Building your topic map…
-        </p>
-        {delayed && <p className="mt-1 text-body-m text-on-surface-variant">Processing is delayed. We&apos;ll keep trying.</p>}
+      <div className="mt-6 max-w-xl rounded-2xl bg-surface-container-high p-5">
+        <h2 className="text-title-m text-on-surface">{DECISION_HEADING}</h2>
+        <ul className="mt-3 flex flex-col gap-2">
+          {failing.map((s) => (
+            <li key={s.id} className="text-body-m text-on-surface-variant">
+              <p className="text-title-s text-on-surface [overflow-wrap:anywhere]">{sourceTitle(s)}</p>
+              <p>{s.vet_reason ?? s.error ?? GENERIC_ERROR}</p>
+            </li>
+          ))}
+        </ul>
+        {!archived && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" disabled={isPending} onClick={() => run(() => answerSourceDecision(goal.id, "find"))} className={button("filled")}>
+              Find sources for me
+            </button>
+            <button type="button" disabled={isPending} onClick={() => run(() => answerSourceDecision(goal.id, "use"))} className={button("outlined")}>
+              Use mine anyway
+            </button>
+          </div>
+        )}
+        {error && <p role="alert" className="mt-2 text-body-m text-on-negative">{error}</p>}
       </div>
     );
   }
@@ -208,4 +207,30 @@ export function MapStatus({
   }
 
   return <>{children}</>;
+}
+
+function SourceProgress({ sources }: { sources: SourceRow[] }) {
+  return (
+    <ul aria-label="Your sources" className="mt-4 flex flex-col gap-2">
+      {sources.map((s) => {
+        const { stage, failed } = stageOf(s);
+        return (
+          <li key={s.id} className="flex gap-4 rounded-2xl bg-surface-container-low p-4">
+            <Icon name={TYPE_ICON[s.type]} size={24} className="text-on-surface-variant" />
+            <div className="min-w-0 flex-1">
+              <p className="text-title-m text-on-surface [overflow-wrap:anywhere]">{sourceTitle(s)}</p>
+              {failed ? (
+                <p className="mt-1 flex gap-1.5 text-body-m text-on-negative">
+                  <Icon name="error" size={20} />
+                  {s.error ?? GENERIC_ERROR}
+                </p>
+              ) : (
+                <SourceStepper stage={stage} />
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }

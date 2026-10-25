@@ -14,7 +14,7 @@ vi.mock("@/app/goals/[id]/source-actions", () => ({
 const goalActions = vi.hoisted(() => ({
   answerClarification: vi.fn(),
   retryTopicMap: vi.fn(),
-  answerExpand: vi.fn(async () => ({ ok: true as const })),
+  answerSourceDecision: vi.fn(async () => ({ ok: true as const })),
 }));
 vi.mock("@/app/goals/actions", () => goalActions);
 
@@ -50,6 +50,8 @@ const row = (o: Partial<SourceRow>): SourceRow => ({
   error: null,
   relevance_label: null,
   relevance_reason: null,
+  vetted: null,
+  vet_reason: null,
   ...o,
 });
 
@@ -73,26 +75,14 @@ describe("MapStatus while reading the learner's sources", () => {
         ]}
       />,
     );
-    expect(screen.getByRole("status").textContent).toContain("Reading your sources…");
+    expect(screen.getByRole("status").textContent).toContain("Reading 2 of 2 sources: a.example…");
     expect(screen.getAllByRole("list", { name: "Progress" })).toHaveLength(2);
     expect(screen.getByText("Your outline")).toBeTruthy();
   });
 
-  it("asks whether to expand shallow material", async () => {
-    render(<MapStatus goal={goal("awaiting_expand")} sources={[row({ status: "awaiting_map", step: null })]} />);
-    expect(
-      screen.getByText(
-        "This looks like a single article rather than a full curriculum. Expand this topic with related guides?",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Keep it small" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Expand" }));
-    await vi.waitFor(() => expect(goalActions.answerExpand).toHaveBeenCalledWith("g", true));
-  });
-
   it("shows building_map like a map being built", () => {
     render(<MapStatus goal={goal("building_map")} />);
-    expect(screen.getByRole("status").textContent).toContain("Building your topic map…");
+    expect(screen.getByRole("status").textContent).toContain("Designing your map…");
   });
 });
 
@@ -117,6 +107,7 @@ describe("a paywalled source", () => {
     render(
       <AddSourceContext value={open}>
         <SourceList
+          goalId="g"
           rows={[row({ status: "failed", step: "extracting", error: PAYWALLED })]}
           archived={false}
           onRetry={() => {}}

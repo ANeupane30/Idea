@@ -70,6 +70,6 @@ describe("format chooser", () => {
       />,
     );
     expect(screen.getByRole("link", { name: "Add a source" }).getAttribute("href")).toBe("/goals/g?add=source");
-    expect(screen.getByRole("link", { name: /^Search the web for Joins/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /^Search the web for/ })).toBeNull();
   });
 });
