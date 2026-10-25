@@ -15,8 +15,10 @@ from uuid import UUID
 import numpy as np
 import psycopg
 from psycopg import errors as pg_errors
+from psycopg.types.json import Jsonb
 
 from worker.config import DEFAULT_USER_AGENT
+from worker.goal_ready import maybe_start_discovery
 from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
@@ -128,7 +130,7 @@ class IngestHandler:
                 " left join auth.users a on a.id = s.user_id where s.id = %s",
                 (source_id,),
             ).fetchone()
-            if src is None or src["status"] not in ("queued", "processing"):
+            if src is None or src["status"] not in ("queued", "processing", "awaiting_map"):
                 return
             conn.execute(
                 "update sources set status = 'processing', step = 'extracting', delayed = false where id = %s",
@@ -156,8 +158,27 @@ class IngestHandler:
         else:
             title = self._ingest(conn, src, kind, key, pdf_bytes, chash, limits)
 
-        # 5. Map, 6. write.
+        # 5. No map yet (a link given with the goal): wait for it. on_map_ready queues this job again.
+        if self._park_if_no_map(conn, src, title):
+            return
+
+        # 6. Map, 7. write.
         self._map(conn, src, chash, title)
+
+    @staticmethod
+    def _park_if_no_map(conn: psycopg.Connection, src, title: str | None) -> bool:
+        with conn.transaction():
+            goal = conn.execute(
+                "select map_status from goals where id = %s for update", (src["goal_id"],)
+            ).fetchone()
+            if goal is None or goal["map_status"] == "ready":
+                return False
+            conn.execute(
+                "update sources set status = 'awaiting_map', step = null, delayed = false,"
+                " title = coalesce(%s, file_name, url_or_file) where id = %s and status = 'processing'",
+                (title, src["id"]),
+            )
+            return True
 
     def _identify(self, src) -> tuple[str, str, bytes | None]:
         if src["type"] == "web":
@@ -341,6 +362,8 @@ class IngestHandler:
             )
             # New coverage: the covered topics' lessons are out of date (shown as "Refresh lesson?").
             conn.execute("select public.mark_lessons_stale(%s)", (source_id,))
+            if src["origin"] == "user":
+                maybe_start_discovery(conn, src["goal_id"])
 
     # ------------------------------------------------------------ hooks
 
@@ -351,8 +374,25 @@ class IngestHandler:
             )
 
     def on_permanent_failure(self, conn: psycopg.Connection, job: Job, message: str) -> None:
+        source_id = UUID(str(job.payload["source_id"]))
         with conn.transaction():
+            src = conn.execute(
+                "select goal_id, type, origin, discovered_for from sources where id = %s", (source_id,)
+            ).fetchone()
+            if src is None:
+                return
+            if src["origin"] == "auto":
+                # The learner only sees automatic sources that worked. A video that failed
+                # (often a transcript blocked from cloud servers) hands its topic to Wikipedia.
+                conn.execute("delete from sources where id = %s", (source_id,))
+                if src["type"] == "youtube" and src["discovered_for"] is not None:
+                    conn.execute(
+                        "insert into jobs (kind, payload) values ('discover_sources', %s)",
+                        (Jsonb({"goal_id": str(src["goal_id"]), "wikipedia_for": str(src["discovered_for"])}),),
+                    )
+                return
             conn.execute(
                 "update sources set status = 'failed', error = %s, step = null, delayed = false where id = %s",
-                (message, UUID(str(job.payload["source_id"]))),
+                (message, source_id),
             )
+            maybe_start_discovery(conn, src["goal_id"])
