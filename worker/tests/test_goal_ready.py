@@ -107,6 +107,9 @@ def test_clarifying_map_then_answer_matches_waiting_links(db, make_user, make_go
     gid = make_goal(db, uid, title="SQL [clarify]")
     sid = early_source(db, uid, gid, "http://127.0.0.1/article.html")
     run_direct(db, handler(), sid)
+    # A source with structure means no clarifying question (the map follows it); without one the
+    # goal can still clarify, and its waiting links must get matched afterwards.
+    db.execute("update contents set structure = '[]' where content_hash = %s", (source(db, sid)["content_hash"],))
     build_map(db, gid)
     assert goal(db, gid)["map_status"] == "clarifying"
     assert not queued_jobs(db, "ingest_source", "source_id", sid)

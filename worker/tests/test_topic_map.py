@@ -357,3 +357,115 @@ def test_refused_call_is_billed(db, make_user, make_goal):
     jobs.run_once(db, {"topic_map": TopicMapHandler(spy)})
     assert goal_row(db, gid)["map_status"] == "failed"
     assert usage_count(db, uid) == 1
+
+
+# ------------------------------------------------------------ stage 2: maps from the learner's sources
+
+from worker.topic_map import SubtopicDraft as _SD  # noqa: E402
+
+
+class RecordingLLM:
+    def __init__(self):
+        self.fake = FakeLLM(FIXTURES)
+        self.calls = []
+
+    def parse(self, *, model, system, user, schema, max_tokens=16000):
+        self.calls.append({"system": system, "user": user})
+        return self.fake.parse(model=model, system=system, user=user, schema=schema, max_tokens=max_tokens)
+
+
+OUTLINE = "1. Tables\n2. Joins\n3. Indexes"
+
+
+def outline_goal(db, make_user, make_goal, title="Learn SQL", expand=None):
+    """A goal whose learner pasted an outline; reading finished, so it is building_map."""
+    from test_goal_ready import run_direct
+    from test_ingest_handler import handler
+
+    uid = make_user()
+    gid = make_goal(db, uid, title=title, map_status="reading_sources")
+    db.execute("select set_config('app.creating_goal', %s, true)", (str(gid),))
+    sid = db.execute(
+        "insert into sources (user_id, goal_id, type, url_or_file, outline_text)"
+        " values (%s, %s, 'outline', 'outline', %s) returning id",
+        (uid, gid, OUTLINE),
+    ).fetchone()["id"]
+    run_direct(db, handler(), sid)
+    assert goal_row(db, gid)["map_status"] == "building_map"
+    if expand is not None:
+        db.execute("update goals set expand = %s where id = %s", (expand, gid))
+    return gid, sid
+
+
+def test_follow_prompt_includes_structure_and_rule():
+    system, user = build_prompt("Learn SQL", None, "beginner", None, False, structure='<source n="1">x</source>', follow=True)
+    assert "<structure>" in user and '<source n="1">x</source>' in user
+    assert "<rule>follow</rule>" in user
+    assert "3-12 top-level" in system and "<structure>" in system
+    system2, user2 = build_prompt("Learn SQL", None, "beginner", None, False, structure="s", follow=False)
+    assert "<rule>expand</rule>" in user2 and "5-12 top-level" in system2
+
+
+def test_follow_map_with_three_topics_is_valid():
+    three = TopicMapResponse(needs_clarification=False, clarifying_question=None,
+                             subtopics=[_SD(title=f"T{i}", summary="A topic.") for i in range(3)])
+    assert validate_topic_map(three, allow_clarify=False, min_top=3) == []
+    assert validate_topic_map(three, allow_clarify=False)  # the goal-only minimum is still 5
+
+
+def test_building_map_goal_follows_the_outline(db, make_user, make_goal):
+    gid, _ = outline_goal(db, make_user, make_goal)
+    spy = RecordingLLM()
+    TopicMapHandler(spy).run(db, make_job(gid))
+    tops = [r["title"] for r in rows(db, gid) if r["parent_id"] is None]
+    assert tops == ["Tables", "Joins", "Indexes"]
+    assert goal_row(db, gid)["map_status"] == "ready"
+    user = spy.calls[0]["user"]
+    assert "<structure>" in user and 'id="O1"' in user and "Joins" in user
+
+
+def test_no_clarify_when_structure_present(db, make_user, make_goal):
+    gid, _ = outline_goal(db, make_user, make_goal, title="SQL [clarify]")
+    spy = RecordingLLM()
+    TopicMapHandler(spy).run(db, make_job(gid))
+    assert goal_row(db, gid)["map_status"] == "ready"
+    assert "Do not ask for clarification" in spy.calls[0]["system"]
+
+
+def test_refs_set_primary_ref_and_unknown_refs_are_ignored(db, make_user, make_goal):
+    gid, sid = outline_goal(db, make_user, make_goal)
+    TopicMapHandler(FakeLLM(FIXTURES)).run(db, make_job(gid))
+    refs = {
+        r["title"]: r["text"]
+        for r in db.execute(
+            "select s.title, c.text from subtopics s left join source_chunks c on c.id = s.primary_ref"
+            " where s.goal_id = %s",
+            (gid,),
+        ).fetchall()
+    }
+    assert "Tables" in refs["Tables"] and "Joins" in refs["Joins"] and "Indexes" in refs["Indexes"]
+    assert refs["Keys"] is None  # S9.H9 isn't in the summary
+
+
+def test_expand_with_sources_builds_a_full_map(db, make_user, make_goal):
+    gid, _ = outline_goal(db, make_user, make_goal, expand=True)
+    spy = RecordingLLM()
+    TopicMapHandler(spy).run(db, make_job(gid))
+    assert "<rule>expand</rule>" in spy.calls[0]["user"]
+    assert len([r for r in rows(db, gid) if r["parent_id"] is None]) == 6
+
+
+def test_goal_only_map_gets_primary_ref_after_matching(db, make_user, make_ready_goal, make_source):
+    from test_ingest_handler import handler, job
+
+    uid = make_user()
+    gid = make_ready_goal(uid)
+    sid = make_source(uid, gid, "http://127.0.0.1/article.html")
+    handler().run(db, job(sid))
+    row = db.execute(
+        "select s.title, c.content_hash from subtopics s join source_chunks c on c.id = s.primary_ref"
+        " where s.goal_id = %s and s.title = 'Joining tables'",
+        (gid,),
+    ).fetchone()
+    chash = db.execute("select content_hash from sources where id = %s", (sid,)).fetchone()["content_hash"]
+    assert row is not None and row["content_hash"] == chash

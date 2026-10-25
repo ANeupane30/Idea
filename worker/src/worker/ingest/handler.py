@@ -71,6 +71,9 @@ def _check_caps(limits: Limits, duration_s: int | None, page_count: int | None, 
         raise PermanentJobError(messages.TOO_LONG)
 
 
+MAIN_REFERENCE_MIN = 0.40  # the relevance at which a source covers a topic (as for lessons)
+
+
 class IngestHandler:
     def __init__(
         self,
@@ -289,12 +292,16 @@ class IngestHandler:
 
     # ------------------------------------------------------------ mapping
 
-    def _shortlist(self, conn: psycopg.Connection, goal_id: UUID, chash: str) -> list[tuple[UUID, ShortlistItem]]:
+    def _shortlist(
+        self, conn: psycopg.Connection, goal_id: UUID, chash: str
+    ) -> tuple[list[tuple[UUID, ShortlistItem]], dict[UUID, UUID]]:
+        """The subtopics worth rating, and each one's closest chunk (its main reference if it matches)."""
         with conn.transaction():
             rows = conn.execute(
-                "select s.id, s.title, s.summary, x.text, x.sim from subtopics s"
+                "select s.id, s.title, s.summary, x.chunk_id, x.text, x.sim from subtopics s"
                 " join subtopic_embeddings e on e.subtopic_id = s.id and e.embed_model = %s"
-                " cross join lateral (select c.text, 1 - (c.embedding <=> e.embedding) as sim from source_chunks c"
+                " cross join lateral (select c.id as chunk_id, c.text, 1 - (c.embedding <=> e.embedding) as sim"
+                "   from source_chunks c"
                 "   where c.content_hash = %s order by c.embedding <=> e.embedding limit %s) x"
                 " where s.goal_id = %s"
                 " order by coalesce((select p.position from subtopics p where p.id = s.parent_id), s.position),"
@@ -302,7 +309,9 @@ class IngestHandler:
                 (self._embedder.model, chash, _TOP_K, goal_id),
             ).fetchall()
         grouped: dict[UUID, dict] = {}
+        top: dict[UUID, UUID] = {}
         for r in rows:
+            top.setdefault(r["id"], r["chunk_id"])  # rows come closest first
             g = grouped.setdefault(r["id"], {"title": r["title"], "summary": r["summary"], "chunks": [], "best": 0.0})
             g["chunks"].append(r["text"])
             g["best"] = max(g["best"], float(r["sim"]))
@@ -310,7 +319,7 @@ class IngestHandler:
         return [
             (sid, ShortlistItem(f"s{i + 1}", g["title"], g["summary"], g["chunks"]))
             for i, (sid, g) in enumerate(shortlisted)
-        ]
+        ], top
 
     def _rate(self, conn, source_id, user_id, goal_title: str, batch: list[ShortlistItem]) -> MappingResponse:
         bill = self._bill(conn, source_id, user_id, "map")
@@ -340,7 +349,7 @@ class IngestHandler:
         source_id = src["id"]
         self._set_step(conn, source_id, "mapping")
         ensure_subtopic_embeddings(conn, self._embedder, src["goal_id"])
-        shortlist = self._shortlist(conn, src["goal_id"], chash)
+        shortlist, top_chunk = self._shortlist(conn, src["goal_id"], chash)
 
         rows: list[tuple[UUID, float, str]] = []
         for start in range(0, len(shortlist), BATCH):
@@ -370,6 +379,13 @@ class IngestHandler:
                 " title = coalesce(%s, file_name, url_or_file) where id = %s",
                 (relevance, relevance, top[2] if top else None, title, source_id),
             )
+            # A matched topic without a main reference (maps built from the goal alone) gets its closest chunk.
+            for sid, rel, _ in rows:
+                if rel >= MAIN_REFERENCE_MIN and sid in top_chunk:
+                    conn.execute(
+                        "update subtopics set primary_ref = %s where id = %s and primary_ref is null",
+                        (top_chunk[sid], sid),
+                    )
             # New coverage: the covered topics' lessons are out of date (shown as "Refresh lesson?").
             conn.execute("select public.mark_lessons_stale(%s)", (source_id,))
             if src["origin"] == "user":
