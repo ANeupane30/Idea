@@ -326,6 +326,17 @@ class FakeLLM:
             return LLMResult(fake_verdicts(user), 200, 60, model)
         if schema is MermaidFix:
             return LLMResult(MermaidFix(mermaid="graph TD; A-->B"), 50, 20, model)
+        if schema.__name__ == "VerdictBatch":
+            # Vetted unless the fixture says otherwise: "offtopic" fails on topic, "sign-in" fails substance.
+            verdicts = []
+            for sid, block in re.findall(r'<source id="([^"]+)">(.*?)</source>', user, re.S):
+                low = block.lower()
+                verdicts.append({"id": sid, "on_topic": "offtopic" not in low, "credible": True,
+                                 "substantial": "sign-in" not in low,
+                                 "reason": "This doesn't teach the goal." if "offtopic" in low else
+                                 "This is a sign-in page, not learning material." if "sign-in" in low else
+                                 "It teaches this subject clearly."})
+            return LLMResult(schema.model_validate({"verdicts": verdicts}), 80, 40, model)
         if schema.__name__ == "SearchPlan":
             import html as _html
 
