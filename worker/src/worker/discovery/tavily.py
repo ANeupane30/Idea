@@ -102,6 +102,26 @@ def search(
     return search_many(conn, [query], api_key=api_key, monthly_credits=monthly_credits, url=url, transport=transport)
 
 
+def search_each(
+    conn: psycopg.Connection,
+    queries: list[str],
+    *,
+    api_key: str,
+    monthly_credits: int,
+    url: str = TAVILY_URL,
+    transport=None,
+) -> list[list[TavilyHit]]:
+    """Several searches at once, results per query (empty where one failed)."""
+    if _used(conn) >= monthly_credits:
+        raise QuotaExhausted("monthly Tavily credits used up")
+    with ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
+        results = list(pool.map(lambda q: _fetch(q, api_key=api_key, url=url, transport=transport), queries))
+    for found in results:
+        if found is not None:
+            _count(conn, monthly_credits)
+    return [found or [] for found in results]
+
+
 def search_many(
     conn: psycopg.Connection,
     queries: list[str],
@@ -113,13 +133,6 @@ def search_many(
 ) -> list[TavilyHit]:
     """Several searches at once: the quota is checked first, the requests run in parallel with no
     database access, then each answered search is counted. Hits are returned in query order."""
-    if _used(conn) >= monthly_credits:
-        raise QuotaExhausted("monthly Tavily credits used up")
-    with ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
-        results = list(pool.map(lambda q: _fetch(q, api_key=api_key, url=url, transport=transport), queries))
-    hits: list[TavilyHit] = []
-    for found in results:
-        if found is not None:
-            _count(conn, monthly_credits)
-            hits.extend(found)
-    return hits
+    per_query = search_each(conn, queries, api_key=api_key, monthly_credits=monthly_credits, url=url,
+                            transport=transport)
+    return [h for hits in per_query for h in hits]

@@ -1,29 +1,23 @@
-"""What happens once a goal's map exists: waiting user sources get matched, then discovery runs.
+"""A goal's preparation after its sources are read: the check, the map, matching, the gap phase, ready."""
 
-Discovery waits until the learner's own sources are matched, so it only fills topics they don't cover.
-"""
-
+import logging
 from uuid import UUID
 
 import psycopg
 from psycopg.types.json import Jsonb
 
-_IN_FLIGHT = ("queued", "processing", "awaiting_map")
+from worker.discovery.gaps import gap_queries
+from worker.discovery.handler import COVERED, UNCOVERED_SQL
+
+log = logging.getLogger(__name__)
+
+PREP_BUDGET_S = 300  # a goal's preparation budget (spec: 5 minutes)
+GAP_PHASE_S = 45  # hard cap on the gap phase
 
 
-def _user_sources_in_flight(conn: psycopg.Connection, goal_id: UUID) -> bool:
-    row = conn.execute(
-        "select exists (select 1 from sources where goal_id = %s and origin = 'user' and status = any(%s)) as busy",
-        (goal_id, list(_IN_FLIGHT)),
-    ).fetchone()
-    return bool(row["busy"])
 
 
-def _start_discovery(conn: psycopg.Connection, goal_id: UUID) -> None:
-    conn.execute("update goals set discovery_status = 'running' where id = %s", (goal_id,))
-    conn.execute(
-        "insert into jobs (kind, payload) values ('discover_sources', %s)", (Jsonb({"goal_id": str(goal_id)}),)
-    )
+
 
 
 def on_map_written(conn: psycopg.Connection, goal_id: UUID) -> None:
@@ -59,34 +53,61 @@ def finish_matching(conn: psycopg.Connection, goal_id: UUID) -> None:
         " and status in ('queued', 'processing', 'awaiting_map')) as busy",
         (goal_id,),
     ).fetchone()["busy"]
-    if not busy:
-        _ready(conn, goal_id)
+    if busy:
+        return
+    g = conn.execute(
+        "select gap_deadline, extract(epoch from now() - coalesce(prep_started_at, now())) as elapsed"
+        " from goals where id = %s", (goal_id,),
+    ).fetchone()
+    uncovered = len(conn.execute(UNCOVERED_SQL, {"goal": goal_id, "covered": COVERED}).fetchall())
+    total = conn.execute(
+        "select count(*) as n from subtopics where goal_id = %s and parent_id is null", (goal_id,)
+    ).fetchone()["n"]
+    log.info("map coverage: %s/%s topics (goal %s)", total - uncovered, total, goal_id)
+    if g["gap_deadline"] is None and uncovered:
+        n = gap_queries(remaining_s=PREP_BUDGET_S - float(g["elapsed"]), uncovered=uncovered)
+        if n:
+            conn.execute(
+                "update goals set gap_deadline = now() + make_interval(secs => %s) where id = %s",
+                (GAP_PHASE_S, goal_id),
+            )
+            conn.execute(
+                "insert into jobs (kind, payload) values ('fill_gaps', %s)",
+                (Jsonb({"goal_id": str(goal_id), "queries": n}),),
+            )
+            return
+    _ready(conn, goal_id)
 
 
 def _ready(conn: psycopg.Connection, goal_id: UUID) -> None:
     conn.execute("update goals set map_status = 'ready' where id = %s", (goal_id,))
-    _start_discovery_if_new(conn, goal_id)
 
 
-def _start_discovery_if_new(conn: psycopg.Connection, goal_id: UUID) -> None:
-    status = conn.execute(
-        "select discovery_status from goals where id = %s for update", (goal_id,)
-    ).fetchone()["discovery_status"]
-    if status != "none":
-        return
-    if _user_sources_in_flight(conn, goal_id):
-        conn.execute("update goals set discovery_status = 'waiting' where id = %s", (goal_id,))
-    else:
-        _start_discovery(conn, goal_id)
+def mark_ready_if_matching(conn: psycopg.Connection, goal_id: UUID) -> bool:
+    moved = conn.execute(
+        "update goals set map_status = 'ready' where id = %s and map_status = 'matching_sources' returning id",
+        (goal_id,),
+    ).fetchone()
+    return moved is not None
 
 
-def maybe_start_discovery(conn: psycopg.Connection, goal_id: UUID) -> None:
-    """Call when a user source becomes ready or fails: starts discovery once none are left in flight."""
-    row = conn.execute("select discovery_status from goals where id = %s for update", (goal_id,)).fetchone()
-    if row is None or row["discovery_status"] != "waiting":
-        return
-    if not _user_sources_in_flight(conn, goal_id):
-        _start_discovery(conn, goal_id)
+def sweep_matching_deadlines(conn: psycopg.Connection) -> int:
+    """Goals past their gap deadline are shown with what they have (gap sources keep matching after)."""
+    with conn.transaction():
+        rows = conn.execute(
+            "update goals set map_status = 'ready' where map_status = 'matching_sources'"
+            " and gap_deadline <= now() returning id"
+        ).fetchall()
+    return len(rows)
+
+
+def sweep(conn: psycopg.Connection) -> int:
+    """The worker's periodic sweep: reading timeouts and gap deadlines."""
+    return sweep_reading_timeouts(conn) + sweep_matching_deadlines(conn)
+
+
+
+
 
 
 # ------------------------------------------------------------ sources first: once the sources are read

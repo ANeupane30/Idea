@@ -7,8 +7,8 @@ import psycopg
 
 from worker.config import Settings
 from worker.db import connect
-from worker.discovery.handler import DiscoverHandler
-from worker.goal_ready import sweep_reading_timeouts
+from worker.discovery.gaps import FillGapsHandler
+from worker.goal_ready import sweep
 from worker.ingest.embed import make_embedder
 from worker.ingest.extract_web import PlaywrightRenderer
 from worker.ingest.extract_youtube import YouTubeTranscriptSource
@@ -113,7 +113,9 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         "topic_map": TopicMapHandler(llm),
         "ingest_source": ingest,
         "quiz_bank": quiz_bank,
-        "discover_sources": DiscoverHandler(settings),
+        "fill_gaps": FillGapsHandler(settings),
+        # Jobs queued before the gap phase existed (staging) run as gap searches.
+        "discover_sources": FillGapsHandler(settings),
         "understand_goal": UnderstandHandler(llm),
         "find_sources": FindSourcesHandler(settings),
         "check_sources": CheckSourcesHandler(llm),
@@ -126,7 +128,7 @@ def main() -> None:
     )
     settings = Settings()
     log.info("worker started (provider=%s)", settings.llm_provider)
-    serve(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s, sweep=sweep_reading_timeouts)
+    serve(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s, sweep=sweep)
 
 
 if __name__ == "__main__":

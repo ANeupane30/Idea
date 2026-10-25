@@ -426,6 +426,7 @@ def test_building_map_goal_follows_the_outline(db, make_user, make_goal):
     tops = [r["title"] for r in rows(db, gid) if r["parent_id"] is None]
     assert tops == ["Tables", "Joins", "Indexes"]
     assert goal_row(db, gid)["map_status"] == "matching_sources"  # not shown until matched
+    db.execute("update goals set prep_started_at = now() - interval '10 minutes' where id = %s", (gid,))  # no gap budget
     match_all(db, gid)
     assert goal_row(db, gid)["map_status"] == "ready"
     user = spy.calls[0]["user"]
