@@ -19,7 +19,7 @@ class Wiki:
         self.queries.append(query)
         if self.hits is not None:
             return self.hits(query) if callable(self.hits) else self.hits
-        topic = query.split(" Learn ")[0]
+        topic = query.rsplit(" SQL", 1)[0]
         return [WikiHit(f"{topic} article", 800, False)]
 
 
@@ -101,7 +101,7 @@ def test_adds_one_article_per_uncovered_topic_up_to_four(db, goal):
     assert [r["type"] for r in rows] == ["web"] * 4
     assert [r["topic"] for r in rows] == names[:4]
     assert rows[0]["url_or_file"] == "https://en.wikipedia.org/wiki/" + (names[0] + " article").replace(" ", "_")
-    assert wiki.queries[0] == f"{names[0]} Learn SQL"
+    assert wiki.queries[0] == f"{names[0]} SQL"  # the goal's subject, without "Learn"
     assert status(db, gid) == "done"
 
 
@@ -170,7 +170,7 @@ def test_wikipedia_for_payload_only_searches_that_topic(db, goal):
     wiki, tube = Wiki(), Tube()
     make_handler(wiki, tube, youtube_api_key="k").run(db, job(gid, wikipedia_for=str(t[1]["id"])))
     assert tube.queries == []
-    assert wiki.queries == [f"{t[1]['title']} Learn SQL"]
+    assert wiki.queries == [f"{t[1]['title']} SQL"]
     assert [r["topic"] for r in auto_sources(db, gid)] == [t[1]["title"]]
 
 
@@ -182,7 +182,7 @@ def test_wikipedia_for_a_child_searches_its_top_level_topic(db, goal):
     ).fetchone()
     wiki = Wiki()
     make_handler(wiki).run(db, job(gid, wikipedia_for=str(child["id"])))
-    assert wiki.queries == [f"{child['parent']} Learn SQL"]
+    assert wiki.queries == [f"{child['parent']} SQL"]
 
 
 def test_caps_count_existing_auto_sources(db, goal):
@@ -286,3 +286,16 @@ def test_discovered_for_is_a_top_level_topic(db, goal):
     ).fetchall()
     assert parents and all(p["parent_id"] is None for p in parents)
     assert isinstance(gid, UUID)
+
+
+def test_goal_topic_strips_learning_phrases():
+    from worker.discovery.handler import goal_topic
+
+    assert goal_topic("Learn the basics of personal finance") == "personal finance"
+    assert goal_topic("Learn about Roman history") == "Roman history"
+    assert goal_topic("learn SQL") == "SQL"
+    assert goal_topic("How to bake bread") == "bake bread"
+    assert goal_topic("Understand statistics") == "statistics"
+    assert goal_topic("Master chess openings") == "chess openings"
+    assert goal_topic("SQL") == "SQL"
+

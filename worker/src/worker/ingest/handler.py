@@ -405,6 +405,10 @@ class IngestHandler:
                 " title = coalesce(%s, file_name, url_or_file) where id = %s",
                 (relevance, relevance, top[2] if top else None, title, source_id),
             )
+            if src["origin"] == "auto" and relevance < MAIN_REFERENCE_MIN:
+                # An automatic source that turned out off-topic doesn't help: the learner only sees ones that do.
+                conn.execute("delete from sources where id = %s", (source_id,))
+                return
             # A matched topic without a main reference (maps built from the goal alone) gets its closest chunk.
             for sid, rel, _ in rows:
                 if rel >= MAIN_REFERENCE_MIN and sid in top_chunk:
