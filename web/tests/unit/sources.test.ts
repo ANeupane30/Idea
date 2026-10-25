@@ -1,23 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
-  addNextItems,
   COVERAGE_TEXT,
   detectLinkType,
-  goalTopic,
   isUploadPath,
   LABEL_TEXT,
   linkSchema,
   mainReference,
   PAYWALLED,
-  searchQuery,
   STAGE_TEXT,
   stageOf,
   STEP_TEXT,
   TYPE_TEXT,
-  type NodeCoverage,
   type SourceRow,
 } from "@/lib/sources";
-import type { TreeNode } from "@/lib/topic-tree";
 import { dbErrorToMessage } from "@/lib/validation";
 
 describe("detectLinkType", () => {
@@ -87,64 +82,9 @@ describe("dbErrorToMessage for sources", () => {
   });
 });
 
-describe("goalTopic and searchQuery", () => {
-  it("strips a leading learning verb", () => {
-    expect(goalTopic("Learn the basics of personal finance")).toBe("personal finance");
-    expect(goalTopic("Learn about Roman history")).toBe("Roman history");
-    expect(goalTopic("learn SQL")).toBe("SQL");
-    expect(goalTopic("How to bake bread")).toBe("bake bread");
-    expect(goalTopic("Understand statistics")).toBe("statistics");
-    expect(goalTopic("Master chess openings")).toBe("chess openings");
-    expect(goalTopic("SQL")).toBe("SQL");
-  });
-  it("builds the search query from the subtopic and the goal topic", () => {
-    expect(searchQuery("Learn SQL", "Joining tables")).toBe("Joining tables SQL");
-  });
+describe("coverage", () => {
   it("names the coverage states", () => {
     expect(COVERAGE_TEXT).toEqual({ covered: "Covered", thin: "Thin", gap: "Gap" });
-  });
-});
-
-describe("addNextItems", () => {
-  const node = (id: string, children: TreeNode[] = []): TreeNode => ({
-    id,
-    parent_id: null,
-    title: id,
-    summary: null,
-    position: 0,
-    user_edited: false,
-    children,
-  });
-  const tree = [node("a", [node("a1"), node("a2")]), node("b"), node("c", [node("c1")]), node("d"), node("e"), node("f")];
-  const cov = (state: NodeCoverage["state"]): NodeCoverage => ({ state, sources: [] });
-
-  it("lists gaps first, then thin, in map order, at most 5, never covered", () => {
-    const coverage: Record<string, NodeCoverage> = {
-      a: cov("covered"),
-      a1: cov("thin"),
-      a2: cov("gap"),
-      b: cov("gap"),
-      c: cov("thin"),
-      c1: cov("gap"),
-      d: cov("gap"),
-      e: cov("covered"),
-      f: cov("gap"),
-    };
-    expect(addNextItems(tree, coverage).map((n) => n.id)).toEqual(["a2", "b", "c1", "d", "f"]);
-  });
-  it("fills with thin items when there are few gaps", () => {
-    const coverage: Record<string, NodeCoverage> = {
-      a: cov("covered"),
-      a1: cov("thin"),
-      a2: cov("covered"),
-      b: cov("gap"),
-      c: cov("thin"),
-      c1: cov("covered"),
-      d: cov("covered"),
-      e: cov("covered"),
-      f: cov("covered"),
-    };
-    expect(addNextItems(tree, coverage).map((n) => n.id)).toEqual(["b", "a1", "c"]);
   });
 });
 

@@ -326,6 +326,25 @@ class FakeLLM:
             return LLMResult(fake_verdicts(user), 200, 60, model)
         if schema is MermaidFix:
             return LLMResult(MermaidFix(mermaid="graph TD; A-->B"), 50, 20, model)
+        if schema.__name__ == "VerdictBatch":
+            # Vetted unless the fixture says otherwise: "offtopic" fails on topic, "sign-in" fails substance.
+            verdicts = []
+            for sid, block in re.findall(r'<source id="([^"]+)">(.*?)</source>', user, re.S):
+                low = block.lower()
+                verdicts.append({"id": sid, "on_topic": "offtopic" not in low, "credible": True,
+                                 "substantial": "sign-in" not in low,
+                                 "reason": "This doesn't teach the goal." if "offtopic" in low else
+                                 "This is a sign-in page, not learning material." if "sign-in" in low else
+                                 "It teaches this subject clearly."})
+            return LLMResult(schema.model_validate({"verdicts": verdicts}), 80, 40, model)
+        if schema.__name__ == "SearchPlan":
+            import html as _html
+
+            found = re.search(r"<goal>(.*?)</goal>", user, re.S)
+            goal = _html.unescape(found.group(1)) if found else "the goal"
+            subject = goal[:80]
+            return LLMResult(schema(intent=f"Learn {goal}"[:300], search_subject=subject,
+                                    queries=[f"{goal[:100]} tutorial", f"{goal[:100]} guide"]), 50, 30, model)
         clarify = "[clarify]" in user and "<clarification_answer>" not in user and "<structure>" not in user
         follow = "<rule>follow</rule>" in user
         name = "topic_map_follow.json" if follow else "topic_map_clarify.json" if clarify else "topic_map.json"

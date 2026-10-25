@@ -21,8 +21,6 @@ import {
   type LessonSource,
   type Section,
 } from "@/lib/lessons";
-import { searchQuery } from "@/lib/sources";
-import { SearchLinks } from "../../Coverage";
 import { chooseFormat, logFormatSwitch, sendFeedback } from "./lesson-actions";
 
 type Live = { status: "writing" | "error"; code?: string; sections: Section[]; sources: LessonSource[] };
@@ -39,19 +37,23 @@ type Props = {
   formatChosen: boolean;
   initialLessons: Partial<Record<Format, Lesson>>;
   hasSources: boolean;
+  /** No source covers this topic yet, but some are still being read. */
+  sourcesPending?: boolean;
 };
+
+const PENDING_TEXT = "Sources for this topic are still being read. This takes a minute or two.";
 
 export function LessonView({
   userId,
   title,
   summary,
   goalId,
-  goalTitle,
   subtopic,
   preferredFormat,
   formatChosen,
   initialLessons,
   hasSources,
+  sourcesPending = false,
 }: Props) {
   const [chosen, setChosen] = useState(formatChosen);
   const [pick, setPick] = useState<Format>(preferredFormat);
@@ -60,6 +62,14 @@ export function LessonView({
   const [live, setLive] = useState<Partial<Record<Format, Live>>>({});
   const started = useRef(new Set<Format>());
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+  const router = useRouter();
+
+  // A source still being read may cover this topic soon.
+  useEffect(() => {
+    if (hasSources || !sourcesPending) return;
+    const timer = setInterval(() => router.refresh(), 5000);
+    return () => clearInterval(timer);
+  }, [hasSources, sourcesPending, router]);
 
   const start = useCallback(
     async (fmt: Format, refresh = false) => {
@@ -140,14 +150,11 @@ export function LessonView({
   if (!hasSources) {
     body = (
       <div className="rounded-2xl bg-surface-container-high p-5">
-        <p className="text-body-l text-on-surface">{LESSON_ERROR_TEXT.no_sources}</p>
+        <p className="text-body-l text-on-surface">{sourcesPending ? PENDING_TEXT : LESSON_ERROR_TEXT.no_sources}</p>
         <Link href={`${mapHref}?add=source`} className={button("filled", "mt-3")}>
           <Icon name="add" size={20} />
           Add a source
         </Link>
-        <div className="mt-4">
-          <SearchLinks query={searchQuery(goalTitle, subtopic.title)} />
-        </div>
       </div>
     );
   } else if (!chosen) {

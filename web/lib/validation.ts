@@ -96,7 +96,7 @@ export function dbErrorToMessage(err: { message: string }): string {
   if (m.includes("goal_archived")) return "Unarchive this goal to add sources.";
   if (m.includes("invalid_source")) return "That link or file can't be added.";
   if (m.includes("goal_limit_reached")) return "Free plan allows 2 active goals. Archive one to add another.";
-  if (m.includes("not_clarifying") || m.includes("not_failed") || m.includes("goal_not_awaiting_expand"))
+  if (m.includes("not_clarifying") || m.includes("not_failed") || m.includes("goal_not_awaiting_decision") || m.includes("source_not_unvetted"))
     return "This goal's topic map has already moved on. Refresh the page.";
   if (m.includes("invalid_answer")) return "Please write an answer of up to 1000 characters.";
   if (m.includes("too_many_links")) return TOO_MANY_LINKS;

@@ -19,7 +19,7 @@ beforeAll(() => {
   };
 });
 
-function renderWorkspace(discovering: boolean, openAddSource = false) {
+function renderWorkspace(openAddSource = false) {
   render(
     <Workspace
       goalId="g"
@@ -27,32 +27,19 @@ function renderWorkspace(discovering: boolean, openAddSource = false) {
       archived={false}
       isGuest={false}
       sources={[]}
-      discovering={discovering}
       openAddSource={openAddSource}
       map={<div />}
-      suggestions={null}
     />,
   );
 }
 
-describe("Workspace discovery note", () => {
-  it("says sources are being found while discovery runs", () => {
-    renderWorkspace(true);
-    expect(screen.getByRole("status").textContent).toBe("Finding sources for your topics…");
-  });
-  it("is gone once discovery is done", () => {
-    renderWorkspace(false);
-    expect(screen.queryByText("Finding sources for your topics…")).toBeNull();
-  });
-});
-
 describe("Workspace ?add=source", () => {
   it("opens the Add source dialog when asked", () => {
-    renderWorkspace(false, true);
+    renderWorkspace(true);
     expect(screen.getByRole("dialog", { name: "Add a source" })).toBeTruthy();
   });
   it("keeps it closed otherwise", () => {
-    renderWorkspace(false);
+    renderWorkspace();
     expect(screen.queryByRole("dialog", { name: "Add a source" })).toBeNull();
   });
 });

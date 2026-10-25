@@ -60,11 +60,11 @@ select throws_ok($$update public.goals set map_status = 'ready' where id = '1000
 
 -- goal_enqueues_job
 reset role;
-select is((select count(*) from public.jobs where kind = 'topic_map'
+select is((select count(*) from public.jobs where kind = 'understand_goal'
     and payload->>'goal_id' = '10000000-0000-0000-0000-00000000000a'), 1::bigint,
-  'goal_enqueues_job: exactly one topic_map job for the goal');
+  'goal_enqueues_job: exactly one understand_goal job for the goal (sources first)');
 select is((select map_status from public.goals where id = '10000000-0000-0000-0000-00000000000a'),
-  'pending', 'goal_enqueues_job: map_status is pending');
+  'understanding', 'goal_enqueues_job: a goal the learner creates starts by understanding');
 
 -- goal_limit (free user A has 1 active goal)
 set local role authenticated;

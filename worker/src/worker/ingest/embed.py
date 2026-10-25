@@ -2,7 +2,9 @@
 
 import hashlib
 import math
+import os
 import re
+import threading
 from typing import Protocol
 
 from worker.config import Settings
@@ -20,20 +22,25 @@ class Embedder(Protocol):
 
 
 class FastEmbedder:
-    """BAAI/bge-small-en-v1.5 via fastembed (ONNX, CPU). The model downloads on first use."""
+    """BAAI/bge-small-en-v1.5 via fastembed (ONNX, CPU).
+
+    One model per process, shared by every job thread. The worker image has it built in
+    (FASTEMBED_CACHE_PATH); elsewhere it downloads on first use."""
 
     model = "BAAI/bge-small-en-v1.5"
     shortlist_min = 0.50
-
-    def __init__(self):
-        self._model = None
+    _shared = None
+    _lock = threading.Lock()
 
     def _get(self):
-        if self._model is None:
-            from fastembed import TextEmbedding
+        cls = type(self)
+        if cls._shared is None:
+            with cls._lock:
+                if cls._shared is None:
+                    from fastembed import TextEmbedding
 
-            self._model = TextEmbedding(self.model)
-        return self._model
+                    cls._shared = TextEmbedding(self.model, cache_dir=os.environ.get("FASTEMBED_CACHE_PATH"))
+        return cls._shared
 
     def embed_passages(self, texts: list[str]) -> list[list[float]]:
         return [[float(x) for x in v] for v in self._get().passage_embed(texts)]
