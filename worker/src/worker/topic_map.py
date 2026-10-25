@@ -90,13 +90,14 @@ def build_prompt(
     allow_clarify: bool,
     structure: str | None = None,
     follow: bool = False,
+    follow_min: int = MIN_TOP_FOLLOW,
 ) -> tuple[str, str]:
     """With a structure summary, the map follows (or expands on) the learner's sources."""
     clarify_rule = (_CLARIFY_ALLOWED if allow_clarify else _CLARIFY_FORBIDDEN).format(max_q=MAX_QUESTION)
     following = bool(structure) and follow
     sources_rule = _SOURCES_RULE.format(rule=_FOLLOW_RULE if following else _EXPAND_RULE) if structure else ""
     system = _SYSTEM.format(
-        top_min=MIN_TOP_FOLLOW if following else MIN_TOP,
+        top_min=follow_min if following else MIN_TOP,
         top_max=MAX_TOP,
         max_children=MAX_CHILDREN,
         max_title=MAX_TITLE,
@@ -251,11 +252,14 @@ class TopicMapHandler:
         follow = bool(structure) and not goal["expand"]
         # With the learner's sources there is no clarifying question: their material answers it.
         allow_clarify = not answer and not structure
-        min_top = MIN_TOP_FOLLOW if follow else MIN_TOP
+        # "Keep it small" on thin material: the map may be as small as the material (at least 1).
+        follow_min = max(1, min(MIN_TOP_FOLLOW, len(refs)))
+        min_top = follow_min if follow else MIN_TOP
 
         # 2. LLM calls, outside any transaction.
         system, user = build_prompt(
-            goal["title"], goal["description"], level, answer, allow_clarify, structure=structure or None, follow=follow
+            goal["title"], goal["description"], level, answer, allow_clarify,
+            structure=structure or None, follow=follow, follow_min=follow_min,
         )
         result, errors = self._call(conn, user_id, system, user, allow_clarify, min_top)
         if errors:

@@ -12,7 +12,7 @@ from psycopg.types.json import Jsonb
 
 from worker.ingest.embed import Embedder
 from worker.ingest.embeddings import ensure_subtopic_embeddings
-from worker.jobs import Job, PermanentJobError
+from worker.jobs import AI_BUSY, Job, PermanentJobError
 from worker.lessons.content import LessonChunk, select_chunks, source_json
 from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult, record_usage
 from worker.quiz.questions import MODEL, QuestionDraft, QuestionSet, build_question_prompt, check_draft
@@ -145,7 +145,7 @@ class QuizBankHandler:
         pass  # the bank stays pending while the job retries
 
     def on_permanent_failure(self, conn: psycopg.Connection, job: Job, message: str) -> None:
-        code = message if message in (NO_SOURCES, FAILED) else FAILED
+        code = "busy" if message == AI_BUSY else message if message in (NO_SOURCES, FAILED) else FAILED
         subtopic_id = UUID(str(job.payload["subtopic_id"]))
         with conn.transaction():
             if job.payload.get("difficulty"):

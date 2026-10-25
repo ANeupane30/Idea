@@ -20,6 +20,12 @@ def _norm(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def fallback_headings(title: str | None, first_text: str) -> list[Heading]:
+    """A source with no headings, chapters or items is one item (spec 4.1: a video without chapters)."""
+    sentence = first_sentence(first_text)
+    return [Heading(title or sentence[:120] or "This source", 1, sentence)] if sentence or title else []
+
+
 def build_structure(headings: list[Heading], chunks: list[Chunk], *, outline: bool = False) -> list[dict]:
     """Stored on contents (shared between goals), so ids are local: H1… or, for outlines, O1…."""
     texts = [_norm(c.text) for c in chunks]

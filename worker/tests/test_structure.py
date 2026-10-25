@@ -168,3 +168,52 @@ def test_handler_ingests_an_outline_without_fetching(db, make_user, make_goal):
     assert row["status"] == "awaiting_map" and row["type"] == "outline"
     assert db.execute("select title from sources where id = %s", (sid,)).fetchone()["title"] == "Your outline"
     assert [i["id"] for i in row["structure"]] == ["O1", "O2", "O3", "O4"]
+
+
+def test_source_without_headings_gets_one_item(db, make_user, make_goal):
+    from test_goal_ready import run_direct
+    from test_ingest_handler import BAKING, Site, handler
+
+    uid = make_user()
+    gid = make_goal(db, uid)
+    db.execute("select set_config('app.creating_goal', %s, true)", (str(gid),))
+    sid = db.execute(
+        "insert into sources (user_id, goal_id, type, url_or_file) values (%s, %s, 'web', 'http://127.0.0.1/bread.html')"
+        " returning id",
+        (uid, gid),
+    ).fetchone()["id"]
+    run_direct(db, handler(Site(BAKING)), sid)
+    structure = db.execute(
+        "select c.structure from sources s join contents c on c.content_hash = s.content_hash where s.id = %s", (sid,)
+    ).fetchone()["structure"]
+    assert len(structure) == 1
+    assert structure[0]["title"] == "Baking bread" and structure[0]["level"] == 1
+    assert structure[0]["first_sentence"].startswith("Knead the dough")
+
+
+def test_cached_content_without_structure_gets_it_rebuilt(db, make_user, make_goal):
+    from test_goal_ready import run_direct
+    from test_ingest_handler import Site, handler
+
+    page = PAGE
+    uid = make_user()
+    first = make_goal(db, uid)
+    db.execute("select set_config('app.creating_goal', %s, true)", (str(first),))
+    a = db.execute(
+        "insert into sources (user_id, goal_id, type, url_or_file) values (%s, %s, 'web', 'http://127.0.0.1/j.html')"
+        " returning id", (uid, first),
+    ).fetchone()["id"]
+    run_direct(db, handler(Site(page)), a)
+    chash = db.execute("select content_hash from sources where id = %s", (a,)).fetchone()["content_hash"]
+    db.execute("update contents set structure = null where content_hash = %s", (chash,))  # cached before stage 2
+
+    second = make_goal(db, make_user())
+    other = db.execute("select user_id from goals where id = %s", (second,)).fetchone()["user_id"]
+    db.execute("select set_config('app.creating_goal', %s, true)", (str(second),))
+    b = db.execute(
+        "insert into sources (user_id, goal_id, type, url_or_file) values (%s, %s, 'web', 'http://127.0.0.1/j.html')"
+        " returning id", (other, second),
+    ).fetchone()["id"]
+    run_direct(db, handler(Site(page)), b)
+    structure = db.execute("select structure from contents where content_hash = %s", (chash,)).fetchone()["structure"]
+    assert [i["title"] for i in structure] == ["SQL joins", "Inner joins", "Outer joins", "Full outer joins"]

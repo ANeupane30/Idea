@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { feedbackSchema, LESSON_ERROR_TEXT, lessonRequestSchema, readEvents } from "@/lib/lessons";
+import { QUIZ_ERROR_TEXT } from "@/lib/quiz";
 
 function streamOf(...pieces: string[]): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
@@ -45,6 +46,7 @@ describe("lesson request and copy", () => {
       guest_lesson_limit: "Sign up free to get more lessons.",
       no_sources: "None of your sources cover this topic yet. Add one to get a lesson.",
       not_found: "We couldn't find this topic.",
+      busy: "Our AI is busy right now. Try again later.",
     });
   });
 });
@@ -59,3 +61,11 @@ describe("feedbackSchema", () => {
     expect(feedbackSchema.safeParse({ rating: "meh" }).success).toBe(false);
   });
 });
+
+describe("AI quota messages", () => {
+  it("lessons and quizzes say the AI is busy", () => {
+    expect(LESSON_ERROR_TEXT.busy).toBe("Our AI is busy right now. Try again later.");
+    expect(QUIZ_ERROR_TEXT.busy).toBe("Our AI is busy right now. Try again later.");
+  });
+});
+

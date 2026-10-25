@@ -38,11 +38,11 @@ from worker.ingest.mapping import (
 )
 from worker.ingest.punctuate import repair_punctuation
 from worker.ingest.storage import Storage
-from worker.ingest.types import Extracted, Segment
+from worker.ingest.types import Chunk, Extracted, Segment
 from worker.ingest.urls import content_hash, normalize_url, youtube_video_id
 from worker.jobs import Job, PermanentJobError
 from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult, record_usage
-from worker.structure import build_structure
+from worker.structure import build_structure, fallback_headings
 
 log = logging.getLogger(__name__)
 
@@ -160,6 +160,8 @@ class IngestHandler:
             title = content["title"]
             if content["embed_model"] != self._embedder.model:
                 self._reembed(conn, src["id"], chash)
+            if content["structure"] is None:
+                self._rebuild_structure(conn, src, kind, key, pdf_bytes, chash, title, limits)
         else:
             title = self._ingest(conn, src, kind, key, pdf_bytes, chash, limits)
 
@@ -242,7 +244,8 @@ class IngestHandler:
 
         self._set_step(conn, src["id"], "embedding")
         vectors = self._embedder.embed_passages([c.text for c in chunks])
-        structure = build_structure(extracted.headings, chunks, outline=kind == "outline")
+        headings = extracted.headings or fallback_headings(extracted.title, chunks[0].text)
+        structure = build_structure(headings, chunks, outline=kind == "outline")
 
         with conn.transaction():
             inserted = conn.execute(
@@ -271,6 +274,29 @@ class IngestHandler:
                         ],
                     )
         return extracted.title
+
+    def _rebuild_structure(self, conn, src, kind, key, pdf_bytes, chash, title, limits) -> None:
+        """Content stored before structures existed: read the source again for its headings and
+        resolve them against the stored chunks. Best effort: on any error it is one item."""
+        with conn.transaction():
+            stored = conn.execute(
+                "select position, text from source_chunks where content_hash = %s order by position", (chash,)
+            ).fetchall()
+        chunks = [Chunk(r["position"], r["text"], 0, {}) for r in stored]
+        if not chunks:
+            return
+        try:
+            headings = self._extract(src, kind, key, pdf_bytes, limits).headings
+        except Exception:  # noqa: BLE001 - the source itself is fine; only its outline is missing
+            log.info("could not re-read %s for its structure", src["id"])
+            headings = []
+        headings = headings or fallback_headings(title, chunks[0].text)
+        structure = build_structure(headings, chunks, outline=kind == "outline")
+        with conn.transaction():
+            conn.execute(
+                "update contents set structure = %s where content_hash = %s and structure is null",
+                (Jsonb(structure), chash),
+            )
 
     def _reembed(self, conn: psycopg.Connection, source_id: UUID, chash: str) -> None:
         """Cached chunks embedded by another model aren't comparable with this model's vectors."""

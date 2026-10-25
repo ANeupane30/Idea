@@ -225,3 +225,16 @@ def test_uses_real_connection_without_open_transaction():
         assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
     finally:
         conn.close()
+
+
+def test_rate_limit_ends_the_lesson_with_busy(db, make_user, make_ready_goal, make_source):
+    from test_jobs import _rate_limit_error
+
+    class RateLimited(SpyLLM):
+        def stream_text(self, **kw):
+            raise _rate_limit_error()
+            yield  # pragma: no cover
+
+    uid, _, tid = ready_topic(db, make_user, make_ready_goal, make_source)
+    events = run(gen(RateLimited()), db, uid, tid)
+    assert events[-1] == {"type": "error", "code": "busy"}

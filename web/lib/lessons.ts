@@ -30,6 +30,7 @@ export const LESSON_ERROR_TEXT: Record<string, string> = {
   guest_lesson_limit: "Sign up free to get more lessons.",
   no_sources: "None of your sources cover this topic yet. Add one to get a lesson.",
   not_found: "We couldn't find this topic.",
+  busy: "Our AI is busy right now. Try again later.",
 };
 
 export const lessonRequestSchema = z.object({

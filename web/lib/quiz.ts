@@ -9,6 +9,7 @@ export const QUIZ_ERROR_TEXT: Record<string, string> = {
   guest_quiz_limit: "Sign up free to get more questions.",
   nothing_to_review: "Take a topic quiz first, then come back for a review.",
   failed: "We couldn't prepare questions for this topic. Please try again.",
+  busy: "Our AI is busy right now. Try again later.",
 };
 
 /** Database error message -> quiz error code. Guest codes first ("guest_x" contains "x"). */

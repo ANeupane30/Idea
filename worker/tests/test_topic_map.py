@@ -469,3 +469,34 @@ def test_goal_only_map_gets_primary_ref_after_matching(db, make_user, make_ready
     ).fetchone()
     chash = db.execute("select content_hash from sources where id = %s", (sid,)).fetchone()["content_hash"]
     assert row is not None and row["content_hash"] == chash
+
+
+# ------------------------------------------------------------ final review fixes
+
+
+class OneTopicLLM:
+    """A model that keeps a one-section source to one topic (as real models do)."""
+
+    def parse(self, *, model, system, user, schema, max_tokens=16000):
+        from worker.llm import LLMResult
+
+        resp = TopicMapResponse(needs_clarification=False, clarifying_question=None,
+                                subtopics=[_SD(title="SQL joins", summary="Combining rows.", ref="S1.H1")])
+        return LLMResult(resp, 10, 10, model)
+
+
+def test_keep_it_small_with_one_section_accepts_a_one_topic_map(db, make_user, make_goal):
+    from test_goal_ready import early_source, run_direct
+    from test_ingest_handler import Site, handler
+
+    uid = make_user()
+    gid = make_goal(db, uid, map_status="reading_sources")
+    page = "<html><head><title>Joins</title></head><body><article><h1>SQL joins</h1><p>" + (
+        "A join combines rows from two tables that share a column. " * 25) + "</p></article></body></html>"
+    sid = early_source(db, uid, gid, "http://127.0.0.1/short.html")
+    run_direct(db, handler(Site(page)), sid)
+    assert goal_row(db, gid)["map_status"] == "awaiting_expand"
+    db.execute("update goals set map_status = 'building_map', expand = false where id = %s", (gid,))
+    TopicMapHandler(OneTopicLLM()).run(db, make_job(gid))
+    assert goal_row(db, gid)["map_status"] == "ready"
+    assert [r["title"] for r in rows(db, gid)] == ["SQL joins"]
