@@ -492,7 +492,7 @@ def test_main_registers_ingest(monkeypatch):
     handlers = main_mod.build_handlers(
         Settings(llm_provider="fake", embedder="fake", supabase_secret_key="key")
     )
-    assert set(handlers) == {"topic_map", "ingest_source", "quiz_bank", "discover_sources", "understand_goal"}
+    assert set(handlers) == {"topic_map", "ingest_source", "quiz_bank", "discover_sources", "understand_goal", "find_sources"}
     with pytest.raises(RuntimeError, match="SUPABASE_SECRET_KEY"):
         main_mod.build_handlers(Settings(llm_provider="fake", embedder="fake", supabase_secret_key=None))
 

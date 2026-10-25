@@ -4,6 +4,7 @@ Credits are counted per month in search_usage, so the worker stops calling Tavil
 limit and falls back to Wikipedia instead of being refused mid-goal."""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
@@ -59,17 +60,8 @@ def _count(conn: psycopg.Connection, limit: int) -> None:
             log.warning("tavily quota 80%% used: %s/%s", row["credits"], limit)
 
 
-def search(
-    conn: psycopg.Connection,
-    query: str,
-    *,
-    api_key: str,
-    monthly_credits: int,
-    url: str = TAVILY_URL,
-    transport=None,
-) -> list[TavilyHit]:
-    if _used(conn) >= monthly_credits:
-        raise QuotaExhausted("monthly Tavily credits used up")
+def _fetch(query: str, *, api_key: str, url: str, transport) -> list[TavilyHit] | None:
+    """One HTTP search, no database access (safe in threads). None if it failed."""
     body = {
         "query": query,
         "search_depth": "basic",
@@ -81,20 +73,53 @@ def search(
             r = client.post(url, json=body, headers={"Authorization": f"Bearer {api_key}"})
     except httpx.HTTPError as e:
         log.warning("Tavily search failed: %s", type(e).__name__)
-        return []
+        return None
     if r.status_code in (429, 432):
         raise QuotaExhausted(f"Tavily answered {r.status_code}")
     if r.status_code != 200:
         log.warning("Tavily search failed: HTTP %s", r.status_code)
-        return []
-    _count(conn, monthly_credits)
+        return None
     try:
-        results = r.json()["results"]
         return [
             TavilyHit(h["url"], h.get("title") or h["url"], float(h.get("score") or 0),
                       (urlsplit(h["url"]).hostname or "").lower() in _VIDEO_HOSTS)
-            for h in results
+            for h in r.json()["results"]
         ]
     except (ValueError, KeyError, TypeError):
         log.warning("Tavily answered with an unexpected body")
         return []
+
+
+def search(
+    conn: psycopg.Connection,
+    query: str,
+    *,
+    api_key: str,
+    monthly_credits: int,
+    url: str = TAVILY_URL,
+    transport=None,
+) -> list[TavilyHit]:
+    return search_many(conn, [query], api_key=api_key, monthly_credits=monthly_credits, url=url, transport=transport)
+
+
+def search_many(
+    conn: psycopg.Connection,
+    queries: list[str],
+    *,
+    api_key: str,
+    monthly_credits: int,
+    url: str = TAVILY_URL,
+    transport=None,
+) -> list[TavilyHit]:
+    """Several searches at once: the quota is checked first, the requests run in parallel with no
+    database access, then each answered search is counted. Hits are returned in query order."""
+    if _used(conn) >= monthly_credits:
+        raise QuotaExhausted("monthly Tavily credits used up")
+    with ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
+        results = list(pool.map(lambda q: _fetch(q, api_key=api_key, url=url, transport=transport), queries))
+    hits: list[TavilyHit] = []
+    for found in results:
+        if found is not None:
+            _count(conn, monthly_credits)
+            hits.extend(found)
+    return hits

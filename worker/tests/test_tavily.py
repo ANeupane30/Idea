@@ -111,3 +111,30 @@ def test_settings_defaults():
     assert s.tavily_monthly_credits == 1000
     assert s.tavily_url == "https://api.tavily.com/search"
     assert s.worker_concurrency == 3
+
+
+def test_search_many_runs_queries_concurrently_and_counts_each(db):
+    import time
+
+    class Slow(Recorder):
+        def _handle(self, request):
+            time.sleep(0.3)
+            return super()._handle(request)
+
+    rec = Slow()
+    t = time.monotonic()
+    hits = tavily.search_many(db, ["a", "b", "c"], api_key="k", monthly_credits=1000, transport=rec.transport)
+    assert time.monotonic() - t < 0.8
+    assert len(rec.requests) == 3 and len(hits) == 12
+    assert usage(db) == (3, False)
+
+
+def test_search_many_checks_the_quota_first(db):
+    db.execute("insert into search_usage (month, credits) values (%s, 1000)", (month(db),))
+    with pytest.raises(QuotaExhausted):
+        tavily.search_many(db, ["a"], api_key="k", monthly_credits=1000, transport=Recorder().transport)
+
+
+def test_search_many_quota_response_raises(db):
+    with pytest.raises(QuotaExhausted):
+        tavily.search_many(db, ["a", "b"], api_key="k", monthly_credits=1000, transport=Recorder(status=432, body="{}").transport)
