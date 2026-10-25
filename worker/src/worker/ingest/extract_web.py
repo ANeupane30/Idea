@@ -1,7 +1,8 @@
 """Web extraction: trafilatura, with a headless Chromium fallback for pages that need JavaScript."""
 
 from typing import Protocol
-from urllib.parse import urljoin
+import re
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 import lxml.html
@@ -10,7 +11,7 @@ import trafilatura
 from worker.config import DEFAULT_USER_AGENT
 from worker.ingest import safe_fetch
 from worker.ingest.chunking import clean_text
-from worker.ingest.messages import NO_TEXT
+from worker.ingest.messages import NO_TEXT, PAYWALLED
 from worker.ingest.types import Extracted, Heading, Segment
 from worker.jobs import PermanentJobError
 from worker.structure import first_sentence
@@ -102,6 +103,31 @@ def _title(html: str) -> str | None:
     return meta.title if meta and meta.title else None
 
 
+# Course platforms whose pages are login-walled: a short page there is the sign-in or sales page.
+GATED_HOSTS = ("udemy.com", "coursera.org", "edx.org", "oreilly.com", "skillshare.com", "pluralsight.com")
+GATED_PATHS = {"linkedin.com": "/learning"}
+GATED_MAX_WORDS = 300
+_PASSWORD_FIELD = re.compile(r"""<input\b[^>]*\btype\s*=\s*["']?password\b""", re.I)
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
+def looks_gated(url: str, html: str, text: str) -> bool:
+    """A page we can't learn from without logging in: a short page on a course platform, or any
+    short page that is mostly a sign-in form."""
+    if len(text.split()) >= GATED_MAX_WORDS:
+        return False
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if any(_host_matches(host, d) for d in GATED_HOSTS):
+        return True
+    if any(_host_matches(host, d) and parts.path.startswith(p) for d, p in GATED_PATHS.items()):
+        return True
+    return bool(_PASSWORD_FIELD.search(html))
+
+
 # Section headings that are never topics.
 _BOILERPLATE = {"contents", "references", "see also", "external links", "further reading", "notes", "navigation menu"}
 
@@ -142,8 +168,11 @@ def extract_web(
     if len(text) < MIN_TEXT_CHARS:
         html = renderer.render(page.url)
         text = _text(html)
-        if len(text) < MIN_TEXT_CHARS:
-            raise PermanentJobError(NO_TEXT)
+    # After rendering: a JavaScript page may have content once it runs.
+    if looks_gated(str(page.url), html, text):
+        raise PermanentJobError(PAYWALLED)
+    if len(text) < MIN_TEXT_CHARS:
+        raise PermanentJobError(NO_TEXT)
     # trafilatura's text output puts one paragraph per line.
     paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
     segments = [Segment(p, {"anchor": " ".join(p.split()[:ANCHOR_WORDS])}) for p in paragraphs]

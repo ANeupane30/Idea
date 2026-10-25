@@ -421,5 +421,10 @@ class IngestHandler:
                 "update sources set status = 'failed', error = %s, step = null, delayed = false where id = %s",
                 (message, source_id),
             )
+            if message == messages.PAYWALLED:
+                # Not the learner's fault: attempts are counted from jobs, so drop this one.
+                conn.execute(
+                    "delete from jobs where kind = 'ingest_source' and payload->>'source_id' = %s", (str(source_id),)
+                )
             finish_reading(conn, src["goal_id"])
             maybe_start_discovery(conn, src["goal_id"])

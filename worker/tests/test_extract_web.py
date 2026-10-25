@@ -117,3 +117,50 @@ def test_renderer_blocks_subrequest_redirect_to_private(site_server, monkeypatch
     assert "Start page." in html
     assert "TOPSECRET" not in html
     assert any("localhost" in u for u in renderer.aborted)
+
+
+# ------------------------------------------------------------ paywalls and sign-in walls
+
+from worker.ingest.extract_web import looks_gated  # noqa: E402
+
+SHORT_TEXT = " ".join(["word"] * 120)
+LONG_TEXT = " ".join(["word"] * 400)
+SIGN_IN = (
+    "<html><head><title>Sign in</title></head><body><main><h1>Sign in to continue</h1>"
+    f"<p>{SHORT_TEXT}</p><form><input type='email' name='e'><input type=\"PASSWORD\" name='p'></form></main></body></html>"
+)
+
+
+def test_short_course_page_is_gated():
+    assert looks_gated("https://www.udemy.com/course/x/", "<html></html>", SHORT_TEXT)
+    assert looks_gated("https://coursera.org/learn/y", "<html></html>", SHORT_TEXT)
+    assert looks_gated("https://www.linkedin.com/learning/z", "<html></html>", SHORT_TEXT)
+
+
+def test_long_course_article_is_not_gated():
+    assert not looks_gated("https://www.coursera.org/articles/what-is-sql", "<html></html>", LONG_TEXT)
+
+
+def test_linkedin_outside_learning_is_not_gated_by_host():
+    assert not looks_gated("https://www.linkedin.com/in/someone", "<html></html>", SHORT_TEXT)
+
+
+def test_short_page_with_a_password_field_is_gated_anywhere():
+    assert looks_gated("https://example.org/members", SIGN_IN, SHORT_TEXT)
+    assert not looks_gated("https://example.org/members", SIGN_IN, LONG_TEXT)
+
+
+def test_lookalike_host_is_not_gated():
+    assert not looks_gated("https://notudemy.com/course/x", "<html></html>", SHORT_TEXT)
+
+
+def test_extract_web_raises_paywalled_for_a_sign_in_page():
+    transport = httpx.MockTransport(
+        lambda r: httpx.Response(200, headers={"content-type": "text/html; charset=utf-8"}, text=SIGN_IN)
+    )
+    with pytest.raises(PermanentJobError) as e:
+        extract_web("http://127.0.0.1/members", allow_private=True, renderer=SpyRenderer(SIGN_IN), transport=transport)
+    assert e.value.message == messages.PAYWALLED
+    assert messages.PAYWALLED == (
+        "We can't read this page, it needs a login. Paste the course's syllabus or table of contents instead."
+    )
