@@ -70,6 +70,7 @@ export function MapStatus({
     if (!isPreparing(goal.map_status) && goal.map_status !== "awaiting_source_decision") return;
     const supabase = createBrowserClient();
     let stopped = false;
+    let refreshedAt = 0;
     const timer = setInterval(async () => {
       const [{ data }, { data: rows }, { data: cover }] = await Promise.all([
         supabase.from("goals").select("map_status, map_delayed").eq("id", goal.id).maybeSingle(),
@@ -86,12 +87,13 @@ export function MapStatus({
         );
         setTopics({ ready: tops.filter((c) => c.state !== "gap").length, total: tops.length });
       }
-      if (data.map_status !== goal.map_status) {
-        stopped = true;
-        clearInterval(timer);
-        router.refresh();
-      } else {
+      if (data.map_status === goal.map_status) {
         setDelayed(data.map_delayed);
+      } else if (Date.now() - refreshedAt > 5000) {
+        // Keep polling: a refresh that lands mid-render can be dropped, so ask again if the page
+        // still shows the old stage a few seconds later.
+        refreshedAt = Date.now();
+        router.refresh();
       }
     }, 2000);
     return () => {

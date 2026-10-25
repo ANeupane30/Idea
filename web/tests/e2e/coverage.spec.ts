@@ -38,23 +38,13 @@ test("coverage after a source", async ({ page }) => {
   await expect(panel.getByRole("link", { name: "Open lesson" })).toBeVisible();
 });
 
-test("what to add next", async ({ page }) => {
+test("no search chips, even for a gap", async ({ page }) => {
   await guestBuildsMap(page);
   await addReadyArticle(page);
-  const section = page.getByRole("region", { name: "What to add next" });
-  await expect(section).toBeVisible();
-  const items = section.getByRole("listitem");
-  expect(await items.count()).toBeLessThanOrEqual(5);
-  const indexes = items.filter({ hasText: "Indexes and query performance" });
-  await expect(indexes).toContainText("Try searching for:");
-  await expect(indexes).toContainText("Indexes and query performance SQL");
-  const web = indexes.getByRole("link", { name: /^Search the web for / });
-  await expect(web).toHaveAttribute("href", /^https:\/\/www\.google\.com\/search\?q=Indexes(%20|\+)and(%20|\+)query/);
-  await expect(indexes.getByRole("link", { name: /^Search YouTube for / })).toHaveAttribute(
-    "href",
-    /^https:\/\/www\.youtube\.com\/results\?search_query=Indexes/,
-  );
-  await expect(items.filter({ hasText: "Joining tables" })).toHaveCount(0);
+  await expect(topic(page, "Indexes and query performance")).toContainText("Gap", { timeout: 15_000 });
+  await expect(page.getByRole("region", { name: "What to add next" })).toHaveCount(0);
+  await expect(page.getByText("Try searching for")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /^Search the web for / })).toHaveCount(0);
 });
 
 for (const [width, height] of [

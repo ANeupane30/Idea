@@ -79,7 +79,8 @@ test("topic without sources", async ({ page }) => {
   // A gap topic's card offers "Add source" instead of a lesson link.
   await openLessonByUrl(page, "Indexes and query performance");
   await expect(page.getByText("We couldn't find good material for this topic yet. Add a source if you have one.")).toBeVisible();
-  await expect(page.getByRole("link", { name: /^Search the web for / })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Add a source" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Search the web for / })).toHaveCount(0);
 });
 
 test("another user's topic is 404", async ({ page, browser }) => {
