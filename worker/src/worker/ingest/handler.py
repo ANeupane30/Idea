@@ -18,7 +18,7 @@ from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
 from worker.config import DEFAULT_USER_AGENT
-from worker.goal_ready import finish_reading, maybe_start_discovery
+from worker.goal_ready import finish_matching, finish_reading, maybe_start_discovery
 from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
@@ -165,7 +165,7 @@ class IngestHandler:
         else:
             title = self._ingest(conn, src, kind, key, pdf_bytes, chash, limits)
 
-        # 5. No map yet (a link given with the goal): wait for it. on_map_ready queues this job again.
+        # 5. No map yet (a link given with the goal): wait for it. on_map_written queues this job again.
         if self._park_if_no_map(conn, src, title):
             return
 
@@ -178,7 +178,8 @@ class IngestHandler:
             goal = conn.execute(
                 "select map_status from goals where id = %s for update", (src["goal_id"],)
             ).fetchone()
-            if goal is None or goal["map_status"] == "ready":
+            # The map exists from matching_sources on: match now instead of waiting.
+            if goal is None or goal["map_status"] in ("ready", "matching_sources"):
                 return False
             conn.execute(
                 "update sources set status = 'awaiting_map', step = null, delayed = false,"
@@ -419,6 +420,7 @@ class IngestHandler:
             conn.execute("select public.mark_lessons_stale(%s)", (source_id,))
             if src["origin"] == "user":
                 maybe_start_discovery(conn, src["goal_id"])
+            finish_matching(conn, src["goal_id"])
 
     # ------------------------------------------------------------ hooks
 
@@ -458,4 +460,5 @@ class IngestHandler:
                     "delete from jobs where kind = 'ingest_source' and payload->>'source_id' = %s", (str(source_id),)
                 )
             finish_reading(conn, src["goal_id"])
+            finish_matching(conn, src["goal_id"])
             maybe_start_discovery(conn, src["goal_id"])

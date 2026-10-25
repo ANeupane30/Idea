@@ -390,7 +390,13 @@ def outline_goal(db, make_user, make_goal, title="Learn SQL", expand=None):
         " values (%s, %s, 'outline', 'outline', %s) returning id",
         (uid, gid, OUTLINE),
     ).fetchone()["id"]
+    db.execute("update goals set intent = 'Learn how SQL tables, joins and indexes work' where id = %s", (gid,))
     run_direct(db, handler(), sid)
+    assert goal_row(db, gid)["map_status"] == "checking_sources"
+    from worker.prep.check import CheckSourcesHandler
+
+    CheckSourcesHandler(FakeLLM(FIXTURES)).run(db, Job(id=gid, kind="check_sources", payload={"goal_id": str(gid)},
+                                                       attempts=1, step=None))
     assert goal_row(db, gid)["map_status"] == "building_map"
     if expand is not None:
         db.execute("update goals set expand = %s where id = %s", (expand, gid))
@@ -419,6 +425,8 @@ def test_building_map_goal_follows_the_outline(db, make_user, make_goal):
     TopicMapHandler(spy).run(db, make_job(gid))
     tops = [r["title"] for r in rows(db, gid) if r["parent_id"] is None]
     assert tops == ["Tables", "Joins", "Indexes"]
+    assert goal_row(db, gid)["map_status"] == "matching_sources"  # not shown until matched
+    match_all(db, gid)
     assert goal_row(db, gid)["map_status"] == "ready"
     user = spy.calls[0]["user"]
     assert "<structure>" in user and 'id="O1"' in user and "Joins" in user
@@ -428,7 +436,7 @@ def test_no_clarify_when_structure_present(db, make_user, make_goal):
     gid, _ = outline_goal(db, make_user, make_goal, title="SQL [clarify]")
     spy = RecordingLLM()
     TopicMapHandler(spy).run(db, make_job(gid))
-    assert goal_row(db, gid)["map_status"] == "ready"
+    assert goal_row(db, gid)["map_status"] == "matching_sources"
     assert "Do not ask for clarification" in spy.calls[0]["system"]
 
 
@@ -485,7 +493,8 @@ class OneTopicLLM:
         return LLMResult(resp, 10, 10, model)
 
 
-def test_keep_it_small_with_one_section_accepts_a_one_topic_map(db, make_user, make_goal):
+def test_one_section_material_accepts_a_one_topic_map(db, make_user, make_goal):
+    """A learner's single short vetted source, followed: the map may be as small as the material."""
     from test_goal_ready import early_source, run_direct
     from test_ingest_handler import Site, handler
 
@@ -495,8 +504,82 @@ def test_keep_it_small_with_one_section_accepts_a_one_topic_map(db, make_user, m
         "A join combines rows from two tables that share a column. " * 25) + "</p></article></body></html>"
     sid = early_source(db, uid, gid, "http://127.0.0.1/short.html")
     run_direct(db, handler(Site(page)), sid)
-    assert goal_row(db, gid)["map_status"] == "awaiting_expand"
-    db.execute("update goals set map_status = 'building_map', expand = false where id = %s", (gid,))
+    db.execute("update goals set map_status = 'building_map' where id = %s", (gid,))
+    db.execute("update sources set vetted = true where id = %s", (sid,))
     TopicMapHandler(OneTopicLLM()).run(db, make_job(gid))
-    assert goal_row(db, gid)["map_status"] == "ready"
+    assert goal_row(db, gid)["map_status"] == "matching_sources"
     assert [r["title"] for r in rows(db, gid)] == ["SQL joins"]
+
+
+# ------------------------------------------------------------ sources first: maps from vetted sources
+
+
+def match_all(db, gid):
+    """Run the matching jobs the map queued (as the job queue would)."""
+    from test_goal_ready import run_direct
+    from test_ingest_handler import handler
+
+    for r in db.execute(
+        "select id from sources where goal_id = %s and status = 'awaiting_map'", (gid,)
+    ).fetchall():
+        run_direct(db, handler(), r["id"])
+
+
+def test_prompt_uses_the_intent_and_the_teach_rule():
+    system, user = build_prompt("I would like to learn about plants", None, "beginner", None, False,
+                                structure='<source n="1">x</source>', follow=False,
+                                intent="Simulate a growing plant with L-systems")
+    assert "<intent>Simulate a growing plant with L-systems</intent>" in user
+    assert "I would like to learn about plants" not in user
+    assert "Every topic must be taught by at least one of the sources." in system
+
+
+def test_found_sources_are_expanded_and_unvetted_sources_left_out(db, make_user, make_goal):
+    gid, sid = outline_goal(db, make_user, make_goal)
+    # a second, unvetted user source must not shape the map
+    db.execute("select set_config('app.creating_goal', %s, true)", (str(gid),))
+    bad = db.execute(
+        "insert into sources (user_id, goal_id, type, url_or_file, status, vetted, vet_reason, title)"
+        " select user_id, goal_id, 'web', 'http://127.0.0.1/off.html', 'awaiting_map', false, 'Off-topic.', 'Off'"
+        " from sources where id = %s returning id",
+        (sid,),
+    ).fetchone()["id"]
+    db.execute("update sources set found_for_goal = true, origin = 'auto' where id = %s", (sid,))
+    spy = RecordingLLM()
+    TopicMapHandler(spy).run(db, make_job(gid))
+    user = spy.calls[0]["user"]
+    assert "<rule>expand</rule>" in user  # found material: designed for the intent
+    assert "Off" not in user.split("<structure>")[1]
+    assert db.execute("select status from sources where id = %s", (bad,)).fetchone()["status"] == "ready"  # Not used
+
+
+def test_only_the_learners_vetted_sources_are_followed(db, make_user, make_goal):
+    gid, _ = outline_goal(db, make_user, make_goal)
+    spy = RecordingLLM()
+    TopicMapHandler(spy).run(db, make_job(gid))
+    assert "<rule>follow</rule>" in spy.calls[0]["user"]
+
+
+def test_use_mine_anyway_with_nothing_readable_gives_a_starting_point(db, make_user, make_goal):
+    """Review Focus 7: vetted, but never read (no chunks): no crash, no empty topics."""
+    uid = make_user()
+    gid = make_goal(db, uid, map_status="building_map")
+    db.execute("update goals set intent = 'Learn SQL' where id = %s", (gid,))
+    db.execute("select set_config('app.creating_goal', %s, true)", (str(gid),))
+    db.execute(
+        "insert into sources (user_id, goal_id, type, url_or_file, status, vetted, error)"
+        " values (%s, %s, 'web', 'http://127.0.0.1/403.html', 'failed', true, 'We couldn''t open this link.')",
+        (uid, gid),
+    )
+    TopicMapHandler(FakeLLM(FIXTURES)).run(db, make_job(gid))
+    g = goal_row(db, gid)
+    assert g["map_note"] == "starting_point"
+    assert g["map_status"] == "ready"  # nothing to match
+    assert len(rows(db, gid)) == 10 and all(r["title"] for r in rows(db, gid))
+
+
+def test_a_goal_without_sources_to_match_is_ready_at_once(db, make_user, make_goal):
+    gid = make_goal(db, make_user())
+    TopicMapHandler(FakeLLM(FIXTURES)).run(db, make_job(gid))
+    assert goal_row(db, gid)["map_status"] == "ready"
+

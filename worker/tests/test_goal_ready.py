@@ -6,7 +6,7 @@ from test_ingest_handler import Site, Transcripts, handler, job, source
 from test_topic_map import FIXTURES, make_job
 
 from worker import jobs
-from worker.goal_ready import maybe_start_discovery, on_map_ready
+from worker.goal_ready import maybe_start_discovery, on_map_written
 from worker.ingest import messages
 from worker.jobs import Job
 from worker.llm import FakeLLM
@@ -66,9 +66,10 @@ def test_map_ready_requeues_waiting_sources_then_they_match(db, make_user, make_
     run_direct(db, handler(site), sid)
     calls = site.calls
     build_map(db, gid)
-    assert goal(db, gid)["map_status"] == "ready"
+    assert goal(db, gid)["map_status"] == "matching_sources"  # shown once its sources are matched
     assert queued_jobs(db, "ingest_source", "source_id", sid)
     handler(site).run(db, job(sid))
+    assert goal(db, gid)["map_status"] == "ready"
     s = source(db, sid)
     assert s["status"] == "ready" and s["relevance_label"] == "high"
     assert site.calls == calls  # matched from the cached content, not fetched again
@@ -80,9 +81,9 @@ def test_discovery_waits_for_user_sources(db, make_user, make_goal):
     sid = early_source(db, uid, gid, "http://127.0.0.1/article.html")
     handler().run(db, job(sid))
     build_map(db, gid)
-    assert goal(db, gid)["discovery_status"] == "waiting"
+    assert goal(db, gid)["discovery_status"] == "none"  # nothing is looked for until matching ends
     assert not queued_jobs(db, "discover_sources", "goal_id", gid)
-    handler().run(db, job(sid))  # matched: the last user source is done
+    handler().run(db, job(sid))  # matched: the last source is done, so the map is ready
     assert goal(db, gid)["discovery_status"] == "running"
     assert len(queued_jobs(db, "discover_sources", "goal_id", gid)) == 1
 
@@ -117,7 +118,7 @@ def test_clarifying_map_then_answer_matches_waiting_links(db, make_user, make_go
         "update goals set clarification_answer = 'analytics', map_status = 'pending' where id = %s", (gid,)
     )
     build_map(db, gid)
-    assert goal(db, gid)["map_status"] == "ready"
+    assert goal(db, gid)["map_status"] == "matching_sources"
     assert queued_jobs(db, "ingest_source", "source_id", sid)
 
 
@@ -178,11 +179,11 @@ def test_failed_auto_video_requests_wikipedia_for_its_topic(db, make_user, make_
     assert payloads == [{"goal_id": str(gid), "wikipedia_for": str(topic)}]
 
 
-def test_on_map_ready_is_safe_to_call_twice(db, make_user, make_goal):
+def test_on_map_written_is_safe_to_call_twice(db, make_user, make_goal):
     gid = make_goal(db, make_user())
     build_map(db, gid)
     with db.transaction():
-        on_map_ready(db, UUID(str(gid)))
+        on_map_written(db, UUID(str(gid)))
     assert len(queued_jobs(db, "discover_sources", "goal_id", gid)) == 1
 
 

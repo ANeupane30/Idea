@@ -26,8 +26,15 @@ def _start_discovery(conn: psycopg.Connection, goal_id: UUID) -> None:
     )
 
 
-def on_map_ready(conn: psycopg.Connection, goal_id: UUID) -> None:
-    """Call inside the transaction that made the map ready."""
+def on_map_written(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """Call inside the transaction that wrote the map. Its sources are matched before it's shown:
+    the goal waits in matching_sources, or is ready at once with nothing to match."""
+    # The learner's sources that didn't pass the check are kept, but not used ("Not used").
+    conn.execute(
+        "update sources set status = 'ready', step = null where goal_id = %s and status = 'awaiting_map'"
+        " and vetted = false",
+        (goal_id,),
+    )
     waiting = conn.execute(
         "select id from sources where goal_id = %s and status = 'awaiting_map'", (goal_id,)
     ).fetchall()
@@ -36,6 +43,32 @@ def on_map_ready(conn: psycopg.Connection, goal_id: UUID) -> None:
             "insert into jobs (kind, payload) values ('ingest_source', %s)",
             (Jsonb({"source_id": str(row["id"])}),),
         )
+    if waiting:
+        conn.execute("update goals set map_status = 'matching_sources' where id = %s", (goal_id,))
+    else:
+        _ready(conn, goal_id)
+
+
+def finish_matching(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """Call when one of the goal's sources was matched (or failed): the map is ready once none are left."""
+    goal = conn.execute("select map_status from goals where id = %s for update", (goal_id,)).fetchone()
+    if goal is None or goal["map_status"] != "matching_sources":
+        return
+    busy = conn.execute(
+        "select exists (select 1 from sources where goal_id = %s"
+        " and status in ('queued', 'processing', 'awaiting_map')) as busy",
+        (goal_id,),
+    ).fetchone()["busy"]
+    if not busy:
+        _ready(conn, goal_id)
+
+
+def _ready(conn: psycopg.Connection, goal_id: UUID) -> None:
+    conn.execute("update goals set map_status = 'ready' where id = %s", (goal_id,))
+    _start_discovery_if_new(conn, goal_id)
+
+
+def _start_discovery_if_new(conn: psycopg.Connection, goal_id: UUID) -> None:
     status = conn.execute(
         "select discovery_status from goals where id = %s for update", (goal_id,)
     ).fetchone()["discovery_status"]
