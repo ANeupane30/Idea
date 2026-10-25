@@ -164,3 +164,11 @@ def test_extract_web_raises_paywalled_for_a_sign_in_page():
     assert messages.PAYWALLED == (
         "We can't read this page, it needs a login. Paste the course's syllabus or table of contents instead."
     )
+
+
+def test_headings_skip_comments_between_a_heading_and_its_text():
+    """Seen on staging: a comment after a heading crashed extraction (HtmlComment has no text)."""
+    from worker.ingest.extract_web import _headings
+
+    (h,) = _headings("<html><body><h2>Growth</h2><!-- ad --><p>Plants grow from seeds.</p></body></html>")
+    assert h.title == "Growth" and h.first_sentence == "Plants grow from seeds."

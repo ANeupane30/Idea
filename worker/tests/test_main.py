@@ -95,17 +95,23 @@ def test_serve_sweeps_before_each_run_and_survives_sweep_errors():
     assert len(calls) == 3
 
 
-def test_main_starts_worker_threads_and_one_sweeps(monkeypatch):
+def test_main_starts_worker_threads_and_a_sweeper(monkeypatch):
+    """The sweep has its own thread: seen on staging, a slow job on the sweeping thread held up the
+    reading timeout for good."""
     from worker.config import Settings
 
     calls = []
     monkeypatch.setattr(main_mod, "Settings", lambda: Settings(_env_file=None, worker_concurrency=3, llm_provider="fake"))
     monkeypatch.setattr(main_mod, "build_handlers", lambda s: {"h": object()})
-    monkeypatch.setattr(main_mod, "serve", lambda connect, handlers, poll, sweep=None: calls.append((handlers, sweep)))
+    monkeypatch.setattr(main_mod, "serve", lambda connect, handlers, poll, sweep=None, run=None: calls.append(
+        (handlers, sweep, run)))
     main_mod.main()
-    assert len(calls) == 3
-    assert sum(1 for _, sw in calls if sw is not None) == 1
-    assert len({id(h) for h, _ in calls}) == 3  # each thread has its own handlers (the renderer isn't thread-safe)
+    jobs = [c for c in calls if c[1] is None]
+    (sweeper,) = [c for c in calls if c[1] is not None]
+    assert len(jobs) == 3
+    assert len({id(h) for h, _, _ in jobs}) == 3  # each thread has its own handlers (the renderer isn't thread-safe)
+    handlers, _, run = sweeper
+    assert handlers == {} and run(None, {}) is False  # sweeps only, never claims a job
 
 
 def test_two_connections_claim_a_job_once():
