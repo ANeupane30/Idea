@@ -1,5 +1,6 @@
 import logging
 import sys
+import threading
 import time
 from collections.abc import Callable
 
@@ -7,8 +8,8 @@ import psycopg
 
 from worker.config import Settings
 from worker.db import connect
-from worker.discovery.handler import DiscoverHandler
-from worker.goal_ready import sweep_reading_timeouts
+from worker.discovery.gaps import FillGapsHandler
+from worker.goal_ready import sweep
 from worker.ingest.embed import make_embedder
 from worker.ingest.extract_web import PlaywrightRenderer
 from worker.ingest.extract_youtube import YouTubeTranscriptSource
@@ -16,6 +17,9 @@ from worker.ingest.handler import IngestHandler
 from worker.ingest.storage import SupabaseStorage
 from worker.jobs import Handler, run_once
 from worker.llm import make_llm
+from worker.prep.check import CheckSourcesHandler
+from worker.prep.find import FindSourcesHandler
+from worker.prep.understand import UnderstandHandler
 from worker.quiz.handler import QuizBankHandler
 from worker.topic_map import TopicMapHandler
 
@@ -110,7 +114,12 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         "topic_map": TopicMapHandler(llm),
         "ingest_source": ingest,
         "quiz_bank": quiz_bank,
-        "discover_sources": DiscoverHandler(settings),
+        "fill_gaps": FillGapsHandler(settings),
+        # Jobs queued before the gap phase existed (staging) run as gap searches.
+        "discover_sources": FillGapsHandler(settings),
+        "understand_goal": UnderstandHandler(llm),
+        "find_sources": FindSourcesHandler(settings),
+        "check_sources": CheckSourcesHandler(llm),
     }
 
 
@@ -119,8 +128,24 @@ def main() -> None:
         stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
     settings = Settings()
-    log.info("worker started (provider=%s)", settings.llm_provider)
-    serve(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s, sweep=sweep_reading_timeouts)
+    n = max(1, settings.worker_concurrency)
+    log.info("worker started (provider=%s, threads=%s)", settings.llm_provider, n)
+    # One connection and one set of handlers per thread (the page renderer isn't thread-safe); the
+    # embedding model is shared. Jobs are claimed with skip locked, so threads never take the same one.
+    threads = [
+        threading.Thread(
+            target=serve,
+            args=(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s),
+            kwargs={"sweep": sweep if i == 0 else None},
+            name=f"jobs-{i}",
+            daemon=True,
+        )
+        for i in range(n)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":

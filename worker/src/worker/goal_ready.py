@@ -1,33 +1,34 @@
-"""What happens once a goal's map exists: waiting user sources get matched, then discovery runs.
+"""A goal's preparation after its sources are read: the check, the map, matching, the gap phase, ready."""
 
-Discovery waits until the learner's own sources are matched, so it only fills topics they don't cover.
-"""
-
+import logging
 from uuid import UUID
 
 import psycopg
 from psycopg.types.json import Jsonb
 
-_IN_FLIGHT = ("queued", "processing", "awaiting_map")
+from worker.discovery.gaps import gap_queries
+from worker.discovery.handler import COVERED, UNCOVERED_SQL
+
+log = logging.getLogger(__name__)
+
+PREP_BUDGET_S = 300  # a goal's preparation budget (spec: 5 minutes)
+GAP_PHASE_S = 45  # hard cap on the gap phase
 
 
-def _user_sources_in_flight(conn: psycopg.Connection, goal_id: UUID) -> bool:
-    row = conn.execute(
-        "select exists (select 1 from sources where goal_id = %s and origin = 'user' and status = any(%s)) as busy",
-        (goal_id, list(_IN_FLIGHT)),
-    ).fetchone()
-    return bool(row["busy"])
 
 
-def _start_discovery(conn: psycopg.Connection, goal_id: UUID) -> None:
-    conn.execute("update goals set discovery_status = 'running' where id = %s", (goal_id,))
+
+
+
+def on_map_written(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """Call inside the transaction that wrote the map. Its sources are matched before it's shown:
+    the goal waits in matching_sources, or is ready at once with nothing to match."""
+    # The learner's sources that didn't pass the check are kept, but not used ("Not used").
     conn.execute(
-        "insert into jobs (kind, payload) values ('discover_sources', %s)", (Jsonb({"goal_id": str(goal_id)}),)
+        "update sources set status = 'ready', step = null where goal_id = %s and status = 'awaiting_map'"
+        " and vetted = false",
+        (goal_id,),
     )
-
-
-def on_map_ready(conn: psycopg.Connection, goal_id: UUID) -> None:
-    """Call inside the transaction that made the map ready."""
     waiting = conn.execute(
         "select id from sources where goal_id = %s and status = 'awaiting_map'", (goal_id,)
     ).fetchall()
@@ -36,94 +37,148 @@ def on_map_ready(conn: psycopg.Connection, goal_id: UUID) -> None:
             "insert into jobs (kind, payload) values ('ingest_source', %s)",
             (Jsonb({"source_id": str(row["id"])}),),
         )
-    status = conn.execute(
-        "select discovery_status from goals where id = %s for update", (goal_id,)
-    ).fetchone()["discovery_status"]
-    if status != "none":
-        return
-    if _user_sources_in_flight(conn, goal_id):
-        conn.execute("update goals set discovery_status = 'waiting' where id = %s", (goal_id,))
+    if waiting:
+        conn.execute("update goals set map_status = 'matching_sources' where id = %s", (goal_id,))
     else:
-        _start_discovery(conn, goal_id)
+        _ready(conn, goal_id)
 
 
-def maybe_start_discovery(conn: psycopg.Connection, goal_id: UUID) -> None:
-    """Call when a user source becomes ready or fails: starts discovery once none are left in flight."""
-    row = conn.execute("select discovery_status from goals where id = %s for update", (goal_id,)).fetchone()
-    if row is None or row["discovery_status"] != "waiting":
+def finish_matching(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """Call when one of the goal's sources was matched (or failed): the map is ready once none are left."""
+    goal = conn.execute("select map_status from goals where id = %s for update", (goal_id,)).fetchone()
+    if goal is None or goal["map_status"] != "matching_sources":
         return
-    if not _user_sources_in_flight(conn, goal_id):
-        _start_discovery(conn, goal_id)
+    busy = conn.execute(
+        "select exists (select 1 from sources where goal_id = %s"
+        " and status in ('queued', 'processing', 'awaiting_map')) as busy",
+        (goal_id,),
+    ).fetchone()["busy"]
+    if busy:
+        return
+    g = conn.execute(
+        "select gap_deadline, extract(epoch from now() - coalesce(prep_started_at, now())) as elapsed"
+        " from goals where id = %s", (goal_id,),
+    ).fetchone()
+    uncovered = len(conn.execute(UNCOVERED_SQL, {"goal": goal_id, "covered": COVERED}).fetchall())
+    total = conn.execute(
+        "select count(*) as n from subtopics where goal_id = %s and parent_id is null", (goal_id,)
+    ).fetchone()["n"]
+    log.info("map coverage: %s/%s topics (goal %s)", total - uncovered, total, goal_id)
+    if g["gap_deadline"] is None and uncovered:
+        n = gap_queries(remaining_s=PREP_BUDGET_S - float(g["elapsed"]), uncovered=uncovered)
+        if n:
+            conn.execute(
+                "update goals set gap_deadline = now() + make_interval(secs => %s) where id = %s",
+                (GAP_PHASE_S, goal_id),
+            )
+            conn.execute(
+                "insert into jobs (kind, payload) values ('fill_gaps', %s)",
+                (Jsonb({"goal_id": str(goal_id), "queries": n}),),
+            )
+            return
+    _ready(conn, goal_id)
 
 
-# ------------------------------------------------------------ stage 2: reading the learner's sources
+def _ready(conn: psycopg.Connection, goal_id: UUID) -> None:
+    conn.execute("update goals set map_status = 'ready' where id = %s", (goal_id,))
 
-SHALLOW_WORDS = 1500
-SHALLOW_ITEMS = 3
+
+def mark_ready_if_matching(conn: psycopg.Connection, goal_id: UUID) -> bool:
+    moved = conn.execute(
+        "update goals set map_status = 'ready' where id = %s and map_status = 'matching_sources' returning id",
+        (goal_id,),
+    ).fetchone()
+    return moved is not None
+
+
+def sweep_matching_deadlines(conn: psycopg.Connection) -> int:
+    """Goals past their gap deadline are shown with what they have (gap sources keep matching after).
+
+    Also a backstop: a goal still matching with nothing in flight and no gap phase moves on."""
+    with conn.transaction():
+        idle = conn.execute(
+            "select id from goals g where map_status = 'matching_sources' and gap_deadline is null"
+            " and not exists (select 1 from sources s where s.goal_id = g.id"
+            " and s.status in ('queued', 'processing', 'awaiting_map'))"
+        ).fetchall()
+        for row in idle:
+            finish_matching(conn, row["id"])
+        rows = conn.execute(
+            "update goals set map_status = 'ready' where map_status = 'matching_sources'"
+            " and gap_deadline <= now() returning id"
+        ).fetchall()
+    return len(rows)
+
+
+def sweep(conn: psycopg.Connection) -> int:
+    """The worker's periodic sweep: reading timeouts and gap deadlines."""
+    return sweep_reading_timeouts(conn) + sweep_matching_deadlines(conn)
+
+
+
+
+
+
+# ------------------------------------------------------------ sources first: once the sources are read
+
 READING_TIMEOUT = "5 minutes"
-WORDS_PER_TOKEN = 0.75
 
 
-def is_shallow(total_words: int, top_level_items: int, outline_top_items: int) -> bool:
-    """Too little to build a curriculum from. An outline with 3+ items is never shallow."""
-    if outline_top_items >= SHALLOW_ITEMS:
-        return False
-    return total_words < SHALLOW_WORDS or top_level_items < SHALLOW_ITEMS
+def _queue(conn: psycopg.Connection, kind: str, goal_id: UUID) -> None:
+    conn.execute("insert into jobs (kind, payload) values (%s, %s)", (kind, Jsonb({"goal_id": str(goal_id)})))
 
 
-def _top_level(items: list[dict]) -> int:
-    """Items at a source's shallowest level; a lone page title (one H1) counts its sections instead."""
-    if not items:
-        return 0
-    levels = sorted({int(i["level"]) for i in items})
-    first = sum(1 for i in items if int(i["level"]) == levels[0])
-    if first == 1 and len(levels) > 1:
-        return sum(1 for i in items if int(i["level"]) == levels[1])
-    return first
-
-
-def _queue_map(conn: psycopg.Connection, goal_id: UUID) -> None:
+def starting_point_map(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """No usable material: a map from the intent, labelled a starting point on the page."""
     conn.execute(
-        "insert into jobs (kind, payload) values ('topic_map', %s)", (Jsonb({"goal_id": str(goal_id)}),)
+        "update goals set map_status = 'building_map', map_note = 'starting_point', expand = true where id = %s",
+        (goal_id,),
     )
+    _queue(conn, "topic_map", goal_id)
+
+
+def search_again_or_fall_back(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """Too little found material: one more round from Wikipedia (spec §8), then a starting point."""
+    goal = conn.execute("select search_round from goals where id = %s", (goal_id,)).fetchone()
+    if goal["search_round"] < 1:
+        conn.execute("update goals set search_round = 1, map_status = 'finding_sources' where id = %s", (goal_id,))
+        _queue(conn, "find_sources", goal_id)
+    else:
+        starting_point_map(conn, goal_id)
 
 
 def finish_reading(conn: psycopg.Connection, goal_id: UUID, *, force: bool = False) -> bool:
-    """Once the learner's sources are read (or failed): ask about shallow material, or build the map.
+    """Once a goal's sources are read (or failed): check them before any map.
 
-    Call inside a transaction. With force (the reading timeout), sources still in flight are left
-    behind. Returns whether the goal moved on."""
+    Call inside a transaction. The status is re-read under the goal lock, so of two concurrent calls
+    only one acts. With force (the reading timeout), sources still in flight are left behind.
+    Returns whether the goal moved on."""
     goal = conn.execute("select map_status from goals where id = %s for update", (goal_id,)).fetchone()
     if goal is None or goal["map_status"] != "reading_sources":
         return False
     if not force:
         busy = conn.execute(
-            "select exists (select 1 from sources where goal_id = %s and origin = 'user'"
-            " and status in ('queued', 'processing')) as busy",
+            "select exists (select 1 from sources where goal_id = %s and status in ('queued', 'processing')) as busy",
             (goal_id,),
         ).fetchone()["busy"]
         if busy:
             return False
     read = conn.execute(
-        "select s.type, c.token_count, c.structure from sources s join contents c on c.content_hash = s.content_hash"
-        " where s.goal_id = %s and s.origin = 'user' and s.status = 'awaiting_map'",
-        (goal_id,),
-    ).fetchall()
-    if not read:
-        # Nothing could be read: a map from the goal alone, as if the learner had chosen Expand.
-        conn.execute("update goals set map_status = 'building_map', expand = true where id = %s", (goal_id,))
-        _queue_map(conn, goal_id)
+        "select exists (select 1 from sources where goal_id = %s and status = 'awaiting_map') as read", (goal_id,)
+    ).fetchone()["read"]
+    if read:
+        conn.execute("update goals set map_status = 'checking_sources' where id = %s", (goal_id,))
+        _queue(conn, "check_sources", goal_id)
         return True
-    words = int(sum(r["token_count"] for r in read) * WORDS_PER_TOKEN)
-    top = sum(_top_level(r["structure"] or []) for r in read)
-    outline_top = sum(
-        sum(1 for i in (r["structure"] or []) if int(i["level"]) == 1) for r in read if r["type"] == "outline"
-    )
-    if is_shallow(words, top, outline_top):
-        conn.execute("update goals set map_status = 'awaiting_expand' where id = %s", (goal_id,))
+    ask = conn.execute(
+        "select source_choice is null and exists (select 1 from sources s where s.goal_id = g.id and s.origin = 'user')"
+        " as ask from goals g where id = %s", (goal_id,),
+    ).fetchone()["ask"]
+    if ask:
+        # None of the learner's own sources could be read: they decide what happens next (once).
+        conn.execute("update goals set map_status = 'awaiting_source_decision' where id = %s", (goal_id,))
     else:
-        conn.execute("update goals set map_status = 'building_map' where id = %s", (goal_id,))
-        _queue_map(conn, goal_id)
+        search_again_or_fall_back(conn, goal_id)
     return True
 
 

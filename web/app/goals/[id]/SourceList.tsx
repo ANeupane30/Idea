@@ -1,12 +1,14 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { button } from "@/components/ui/buttons";
 import { StatusChip } from "@/components/ui/chips";
 import { Icon, type IconName } from "@/components/ui/icon";
 import { PAYWALLED, STAGE_TEXT, stageOf, TYPE_TEXT, type SourceRow } from "@/lib/sources";
-import { useAddSource } from "./add-source-context";
 import { GENERIC_ERROR } from "@/lib/validation";
+import { useAddSource } from "./add-source-context";
+// Aliased: a name starting with "use" reads as a React hook.
+import { useSourceAnyway as sourceAnyway } from "./source-actions";
 
 const OFF_TOPIC_NOTE = "Off-topic sources stay in your library but aren't used for lessons or quizzes.";
 
@@ -22,10 +24,12 @@ export const sourceTitle = (s: SourceRow) =>
 
 /** The goal's sources: what each one is, how relevant it is and why. */
 export function SourceList({
+  goalId,
   rows,
   archived,
   onRetry,
 }: {
+  goalId: string;
   rows: SourceRow[];
   archived: boolean;
   onRetry: (id: string) => void;
@@ -48,7 +52,7 @@ export function SourceList({
                 <span className="sr-only">{TYPE_TEXT[s.type]}: </span>
                 {sourceTitle(s)}
               </p>
-              <SourceStatus source={s} archived={archived} onRetry={() => onRetry(s.id)} />
+              <SourceStatus goalId={goalId} source={s} archived={archived} onRetry={() => onRetry(s.id)} />
             </div>
           </li>
         ))}
@@ -57,8 +61,46 @@ export function SourceList({
   );
 }
 
-function SourceStatus({ source: s, archived, onRetry }: { source: SourceRow; archived: boolean; onRetry: () => void }) {
+function SourceStatus({
+  goalId,
+  source: s,
+  archived,
+  onRetry,
+}: {
+  goalId: string;
+  source: SourceRow;
+  archived: boolean;
+  onRetry: () => void;
+}) {
   const addSource = useAddSource();
+  const [using, setUsing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (s.status === "ready" && s.vetted === false) {
+    return (
+      <>
+        <p className="text-body-m text-on-surface-variant">Not used: {s.vet_reason ?? "It didn't look right for this goal."}</p>
+        {!archived && (
+          <button
+            type="button"
+            disabled={using}
+            onClick={async () => {
+              setUsing(true);
+              setError(null);
+              const result = await sourceAnyway(goalId, s.id);
+              if (!result.ok) {
+                setError(result.error);
+                setUsing(false);
+              }
+            }}
+            className={button("text", "-ml-3 min-h-10")}
+          >
+            Use it anyway
+          </button>
+        )}
+        {error && <p role="alert" className="text-body-m text-on-negative">{error}</p>}
+      </>
+    );
+  }
   if (s.status === "failed" && s.error === PAYWALLED) {
     return (
       <>

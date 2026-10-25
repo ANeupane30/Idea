@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { TreeNode } from "@/lib/topic-tree";
 
 /** Hosts the worker reads as YouTube videos (keep in step with worker/src/worker/ingest/urls.py). */
 const YOUTUBE_HOSTS = new Set([
@@ -130,6 +129,9 @@ export type SourceRow = {
   error: string | null;
   relevance_label: RelevanceLabel | null;
   relevance_reason: string | null;
+  /** The source check: true passed, false "Not used" (vet_reason says why), null not checked yet. */
+  vetted: boolean | null;
+  vet_reason: string | null;
 };
 
 /** The four stages the Add source dialog shows. */
@@ -151,7 +153,7 @@ export function stageOf(row: Pick<SourceRow, "status" | "step">): { stage: 0 | 1
 }
 
 export const SOURCE_COLUMNS =
-  "id, type, url_or_file, file_name, title, status, step, delayed, error, relevance_label, relevance_reason";
+  "id, type, url_or_file, file_name, title, status, step, delayed, error, relevance_label, relevance_reason, vetted, vet_reason";
 
 // ------------------------------------------------------------- coverage
 
@@ -163,24 +165,3 @@ export type NodeCoverage = {
 };
 
 export const COVERAGE_TEXT: Record<CoverageState, string> = { covered: "Covered", thin: "Thin", gap: "Gap" };
-
-const LEADING_VERBS = /^(learn the basics of|learn about|learn|how to|understand|master)\s+/i;
-
-/** The subject of a goal: "Learn the basics of personal finance" -> "personal finance". */
-export function goalTopic(goalTitle: string): string {
-  const title = goalTitle.trim();
-  return title.replace(LEADING_VERBS, "").trim() || title;
-}
-
-export function searchQuery(goalTitle: string, subtopicTitle: string): string {
-  return `${subtopicTitle} ${goalTopic(goalTitle)}`;
-}
-
-const ADD_NEXT_MAX = 5;
-
-/** Gaps, then thin subtopics, in map order (each main topic, then its children); at most 5. */
-export function addNextItems(tree: TreeNode[], coverage: Record<string, NodeCoverage>): TreeNode[] {
-  const ordered = tree.flatMap((node) => [node, ...node.children]);
-  const pick = (state: CoverageState) => ordered.filter((n) => coverage[n.id]?.state === state);
-  return [...pick("gap"), ...pick("thin")].slice(0, ADD_NEXT_MAX);
-}

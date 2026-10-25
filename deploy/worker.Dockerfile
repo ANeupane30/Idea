@@ -26,8 +26,12 @@ COPY worker/src ./src
 RUN uv sync --locked --no-dev \
  && playwright install --with-deps chromium
 
+# The embedding model ships in the image, so jobs never wait for a download.
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed')"
+
 # Run as an unprivileged user (Chromium's sandbox needs one).
-RUN useradd --create-home app && chown -R app /app
+RUN useradd --create-home app && chown -R app /app /opt/fastembed
 USER app
 
 CMD ["python", "-m", "worker"]

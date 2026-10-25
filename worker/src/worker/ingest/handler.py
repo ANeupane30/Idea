@@ -18,7 +18,8 @@ from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
 from worker.config import DEFAULT_USER_AGENT
-from worker.goal_ready import finish_reading, maybe_start_discovery
+from worker.goal_ready import finish_matching, finish_reading
+from worker.prep.vet import is_vetted, load_for_check, vet
 from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
@@ -165,12 +166,40 @@ class IngestHandler:
         else:
             title = self._ingest(conn, src, kind, key, pdf_bytes, chash, limits)
 
-        # 5. No map yet (a link given with the goal): wait for it. on_map_ready queues this job again.
+        # 5. No map yet (a link given with the goal): wait for it. on_map_written queues this job again.
         if self._park_if_no_map(conn, src, title):
             return
 
-        # 6. Map, 7. write.
+        # 6. A source arriving once the map exists is checked before it's matched.
+        if src["vetted"] is None and not self._vet_late(conn, src):
+            return
+
+        # 7. Map, 8. write.
         self._map(conn, src, chash, title)
+
+    def _vet_late(self, conn: psycopg.Connection, src) -> bool:
+        """Returns whether to go on matching. Found ones that fail are removed; the learner's are Not used."""
+        with conn.transaction():
+            intent = conn.execute(
+                "select coalesce(intent, title) as intent from goals where id = %s", (src["goal_id"],)
+            ).fetchone()["intent"]
+            to_check = load_for_check(conn, [src["id"]])
+        verdict = vet(self._llm, intent, to_check).get(str(src["id"])) if to_check else None
+        with conn.transaction():
+            if is_vetted(verdict) or (verdict is None and src["origin"] == "user"):
+                conn.execute("update sources set vetted = true, vet_reason = %s where id = %s",
+                             (verdict.reason if verdict else None, src["id"]))
+                return True
+            if src["origin"] == "auto":
+                conn.execute("delete from sources where id = %s", (src["id"],))
+            else:
+                conn.execute(
+                    "update sources set status = 'ready', step = null, vetted = false, vet_reason = %s,"
+                    " title = coalesce(title, file_name, url_or_file) where id = %s and status = 'processing'",
+                    (verdict.reason, src["id"]),
+                )
+            finish_matching(conn, src["goal_id"])
+        return False
 
     @staticmethod
     def _park_if_no_map(conn: psycopg.Connection, src, title: str | None) -> bool:
@@ -178,15 +207,15 @@ class IngestHandler:
             goal = conn.execute(
                 "select map_status from goals where id = %s for update", (src["goal_id"],)
             ).fetchone()
-            if goal is None or goal["map_status"] == "ready":
+            # The map exists from matching_sources on: match now instead of waiting.
+            if goal is None or goal["map_status"] in ("ready", "matching_sources"):
                 return False
             conn.execute(
                 "update sources set status = 'awaiting_map', step = null, delayed = false,"
                 " title = coalesce(%s, file_name, url_or_file) where id = %s and status = 'processing'",
                 (title, src["id"]),
             )
-            if src["origin"] == "user":
-                finish_reading(conn, src["goal_id"])
+            finish_reading(conn, src["goal_id"])
             return True
 
     def _identify(self, src) -> tuple[str, str, bytes | None]:
@@ -392,6 +421,7 @@ class IngestHandler:
             ).fetchone()
             if locked is None or locked["status"] != "processing":
                 log.info("source %s changed during ingestion; not writing", source_id)
+                finish_matching(conn, src["goal_id"])
                 return
             conn.execute("delete from source_coverage where source_id = %s", (source_id,))
             with conn.cursor() as cur:
@@ -408,6 +438,7 @@ class IngestHandler:
             if src["origin"] == "auto" and relevance < MAIN_REFERENCE_MIN:
                 # An automatic source that turned out off-topic doesn't help: the learner only sees ones that do.
                 conn.execute("delete from sources where id = %s", (source_id,))
+                finish_matching(conn, src["goal_id"])
                 return
             # A matched topic without a main reference (maps built from the goal alone) gets its closest chunk.
             for sid, rel, _ in rows:
@@ -418,8 +449,7 @@ class IngestHandler:
                     )
             # New coverage: the covered topics' lessons are out of date (shown as "Refresh lesson?").
             conn.execute("select public.mark_lessons_stale(%s)", (source_id,))
-            if src["origin"] == "user":
-                maybe_start_discovery(conn, src["goal_id"])
+            finish_matching(conn, src["goal_id"])
 
     # ------------------------------------------------------------ hooks
 
@@ -438,14 +468,11 @@ class IngestHandler:
             if src is None:
                 return
             if src["origin"] == "auto":
-                # The learner only sees automatic sources that worked. A video that failed
-                # (often a transcript blocked from cloud servers) hands its topic to Wikipedia.
+                # The learner only sees automatic sources that worked.
                 conn.execute("delete from sources where id = %s", (source_id,))
-                if src["type"] == "youtube" and src["discovered_for"] is not None:
-                    conn.execute(
-                        "insert into jobs (kind, payload) values ('discover_sources', %s)",
-                        (Jsonb({"goal_id": str(src["goal_id"]), "wikipedia_for": str(src["discovered_for"])}),),
-                    )
+                # It may have been the last of the goal's sources being read or matched.
+                finish_reading(conn, src["goal_id"])
+                finish_matching(conn, src["goal_id"])
                 return
             conn.execute(
                 "update sources set status = 'failed', error = %s, step = null, delayed = false where id = %s",
@@ -457,4 +484,4 @@ class IngestHandler:
                     "delete from jobs where kind = 'ingest_source' and payload->>'source_id' = %s", (str(source_id),)
                 )
             finish_reading(conn, src["goal_id"])
-            maybe_start_discovery(conn, src["goal_id"])
+            finish_matching(conn, src["goal_id"])

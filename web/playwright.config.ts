@@ -43,6 +43,10 @@ export default defineConfig({
         // Discovery searches the fixture site's fake Wikipedia (see fixtures/server.py).
         WIKIPEDIA_API_URL: "http://127.0.0.1:8765/w/api.php",
         WIKIPEDIA_ARTICLE_URL: "http://127.0.0.1:8765/wiki/{title}.html",
+        // Source finding searches the fixture site's fake Tavily.
+        TAVILY_API_KEY: "test",
+        TAVILY_URL: "http://127.0.0.1:8765/tavily/search",
+        WORKER_CONCURRENCY: "3",
       },
       reuseExistingServer: false,
       timeout: 60_000,

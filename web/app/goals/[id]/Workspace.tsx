@@ -20,18 +20,16 @@ type Props = {
   archived: boolean;
   isGuest: boolean;
   sources: SourceRow[];
-  /** Sources are still being found for this goal's topics. */
-  discovering: boolean;
   /** Open the Add source dialog straight away (the lesson page's "Add a source" link). */
   openAddSource?: boolean;
   /** The topic map (with its detail card). */
   map: React.ReactNode;
-  /** What to add next, under the sources. */
-  suggestions: React.ReactNode;
+  /** Above the map, e.g. the starting-point notice. */
+  notice?: React.ReactNode;
 };
 
 /**
- * The goal page body: the map on the left, Sources and What to add next on the right (stacked
+ * The goal page body: the map on the left, Sources on the right (stacked
  * under the map below xl), and the Add source dialog behind a floating button.
  */
 export function Workspace({
@@ -40,13 +38,12 @@ export function Workspace({
   archived,
   isGuest,
   sources,
-  discovering: initialDiscovering,
   openAddSource = false,
   map,
-  suggestions,
+  notice,
 }: Props) {
   const router = useRouter();
-  const { rows, discovering } = useSourceRows(goalId, sources, initialDiscovering);
+  const rows = useSourceRows(goalId, sources);
   const [open, setOpen] = useState(openAddSource && !archived);
   const [tab, setTab] = useState<AddSourceTab>("link");
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -84,17 +81,12 @@ export function Workspace({
               Select a topic to start. Chips show source coverage, bars show your mastery.
             </span>
           </h2>
+          {notice}
           <div className="mt-4">{map}</div>
         </div>
-        <aside aria-label="Sources and suggestions" className="flex flex-col gap-6 xl:w-80 xl:shrink-0">
-          {discovering && (
-            <p role="status" className="flex items-center gap-2 text-body-m text-on-surface-variant">
-              Finding sources for your topics…
-            </p>
-          )}
-          <SourceList rows={rows} archived={archived} onRetry={retry} />
+        <aside aria-label="Sources" className="flex flex-col gap-6 xl:w-80 xl:shrink-0">
+          <SourceList goalId={goalId} rows={rows} archived={archived} onRetry={retry} />
           {retryError && <FormError error={retryError} />}
-          {suggestions}
           {isGuest && <GuestSaveCard />}
         </aside>
       </div>

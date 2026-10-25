@@ -37,6 +37,15 @@ def normalize_url(url: str) -> str:
     return urlunsplit((scheme, netloc, parts.path or "/", urlencode(query), ""))
 
 
+def url_key(url: str) -> str:
+    """One key per page: tracking parameters, fragments and a trailing slash don't count."""
+    key = normalize_url(url)
+    parts = urlsplit(key)
+    if parts.path not in ("", "/") and key.endswith("/"):
+        key = key[:-1]
+    return key
+
+
 def is_youtube_host(host: str) -> bool:
     return host.lower() in YOUTUBE_HOSTS
 

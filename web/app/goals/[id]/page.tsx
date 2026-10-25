@@ -5,8 +5,8 @@ import { AppShell } from "@/components/app-shell";
 import { getViewer } from "@/components/site-header";
 import { InfoChip } from "@/components/ui/chips";
 import { createClient } from "@/lib/supabase/server";
+import { isPreparing } from "@/lib/prep";
 import {
-  addNextItems,
   mainReference,
   SOURCE_COLUMNS,
   type CoverageState,
@@ -16,7 +16,6 @@ import {
   type SourceRow,
 } from "@/lib/sources";
 import { buildTree, type SubtopicRow } from "@/lib/topic-tree";
-import { AddNext } from "./AddNext";
 import { MapStatus } from "./MapStatus";
 import type { MasteryRow } from "./StudyNext";
 import { TopicMap, type Level } from "./TopicMap";
@@ -31,17 +30,33 @@ const LEVEL_ICON = {
 
 const LEVELS = ["beginner", "intermediate", "advanced"] as const;
 
+const STARTING_POINT_NOTE =
+  "We couldn't find good learning material for this goal, so this map is a starting point. Add your own sources to improve it.";
+
+type TopRow = { state: CoverageState; subtopics: { parent_id: string | null } };
+
+/** Top-level topics with a source, out of all of them (while lessons are prepared). */
+async function topicCounts(goalId: string): Promise<{ ready: number; total: number }> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("subtopic_coverage")
+    .select("state, subtopics!inner(parent_id)")
+    .eq("goal_id", goalId);
+  const tops = ((data ?? []) as unknown as TopRow[]).filter((r) => r.subtopics.parent_id === null);
+  return { ready: tops.filter((r) => r.state !== "gap").length, total: tops.length };
+}
+
 async function WorkspaceSlot({
   goalId,
   goalTitle,
   archived,
-  discovering,
+  startingPoint,
   openAddSource,
 }: {
   goalId: string;
   goalTitle: string;
   archived: boolean;
-  discovering: boolean;
+  startingPoint: boolean;
   openAddSource: boolean;
 }) {
   const supabase = await createClient();
@@ -67,7 +82,6 @@ async function WorkspaceSlot({
   const mastery = Object.fromEntries(
     ((masteryRows ?? []) as MasteryRow[]).map((r) => [r.subtopic_id, { decayed: Number(r.decayed), label: r.label }]),
   );
-  const hasAddNext = coverage ? addNextItems(tree, coverage).length > 0 : false;
   return (
     <Workspace
       goalId={goalId}
@@ -75,8 +89,12 @@ async function WorkspaceSlot({
       archived={archived}
       isGuest={viewer.isGuest}
       sources={sources}
-      discovering={discovering}
       openAddSource={openAddSource}
+      notice={
+        startingPoint && (
+          <p className="mt-3 rounded-2xl bg-surface-container-high p-4 text-body-m text-on-surface">{STARTING_POINT_NOTE}</p>
+        )
+      }
       map={<TopicMap
           goalId={goalId}
           goalTitle={goalTitle}
@@ -85,14 +103,6 @@ async function WorkspaceSlot({
           mastery={mastery}
           mainReferences={mainReferences}
         />}
-      suggestions={
-        coverage &&
-        (hasAddNext ? (
-          <AddNext goalTitle={goalTitle} tree={tree} coverage={coverage} />
-        ) : (
-          <p className="text-body-m text-on-surface-variant">Every topic is covered by your sources.</p>
-        ))
-      }
     />
   );
 }
@@ -141,17 +151,20 @@ async function Goal({ params, searchParams }: PageProps) {
   const supabase = await createClient();
   const { data } = await supabase
     .from("goals")
-    .select("id, title, status, map_status, map_delayed, clarifying_question, map_error, map_level, discovery_status")
+    .select("id, title, status, map_status, map_delayed, clarifying_question, map_error, map_level, map_note")
     .eq("id", id)
     .maybeSingle();
   if (!data) notFound();
   const level = LEVELS.find((l) => l === data.map_level) ?? null;
-  // While the learner's own sources are read (before the map), MapStatus lists them.
-  const reading = data.map_status === "reading_sources" || data.map_status === "awaiting_expand";
-  const { data: readingRows } = reading
-    ? await supabase.from("sources").select(SOURCE_COLUMNS).eq("goal_id", data.id).order("created_at")
-    : { data: null };
-  const readingSources = (readingRows ?? []) as SourceRow[];
+  // Before the map is shown, MapStatus lists the sources being read and counts the topics ready.
+  const preparing = isPreparing(data.map_status) || data.map_status === "awaiting_source_decision";
+  const [{ data: prepRows }, topics] = await Promise.all([
+    preparing
+      ? supabase.from("sources").select(SOURCE_COLUMNS).eq("goal_id", data.id).order("created_at")
+      : Promise.resolve({ data: null }),
+    data.map_status === "matching_sources" ? topicCounts(data.id) : Promise.resolve(null),
+  ]);
+  const prepSources = (prepRows ?? []) as SourceRow[];
   return (
     <AppShell goalId={data.id}>
     <main className="mx-auto w-full max-w-[1800px] p-4 sm:p-6">
@@ -167,13 +180,13 @@ async function Goal({ params, searchParams }: PageProps) {
           </InfoChip>
         )}
       </div>
-      <MapStatus goal={data} sources={readingSources}>
+      <MapStatus goal={data} sources={prepSources} topics={topics}>
         {data.map_status === "ready" && (
           <WorkspaceSlot
             goalId={data.id}
             goalTitle={data.title}
             archived={data.status === "archived"}
-            discovering={data.discovery_status === "waiting" || data.discovery_status === "running"}
+            startingPoint={data.map_note === "starting_point"}
             openAddSource={add === "source"}
           />
         )}

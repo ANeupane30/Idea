@@ -47,6 +47,15 @@ export async function addOutlineSource(goalId: string, text: string): Promise<Ac
   return { ok: true };
 }
 
+/** A source added after the map that didn't pass the check: the learner uses it anyway. */
+export async function useSourceAnyway(goalId: string, sourceId: string): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("use_source_anyway", { p_source_id: sourceId });
+  if (error) return { ok: false, error: dbErrorToMessage(error) };
+  revalidatePath(`/goals/${goalId}`);
+  return { ok: true };
+}
+
 /** Registers a PDF the browser already uploaded to the user's folder in the `sources` bucket. */
 export async function addPdfSource(goalId: string, path: string, fileName: string): Promise<ActionResult> {
   const supabase = await createClient();

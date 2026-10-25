@@ -28,7 +28,7 @@ export const LESSON_ERROR_TEXT: Record<string, string> = {
   in_progress: "This lesson is already being written. It will appear in a moment.",
   lesson_limit: "You've reached today's limit for new lessons. Try again tomorrow.",
   guest_lesson_limit: "Sign up free to get more lessons.",
-  no_sources: "None of your sources cover this topic yet. Add one to get a lesson.",
+  no_sources: "We couldn't find good material for this topic yet. Add a source if you have one.",
   not_found: "We couldn't find this topic.",
   busy: "Our AI is busy right now. Try again later.",
 };

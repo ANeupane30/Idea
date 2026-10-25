@@ -93,3 +93,41 @@ def test_serve_sweeps_before_each_run_and_survives_sweep_errors():
     with pytest.raises(_Stop):
         main_mod.serve(lambda: FakeConn(), {}, poll_interval_s=0.5, sleep=lambda s: None, run=run, sweep=sweep)
     assert len(calls) == 3
+
+
+def test_main_starts_worker_threads_and_one_sweeps(monkeypatch):
+    from worker.config import Settings
+
+    calls = []
+    monkeypatch.setattr(main_mod, "Settings", lambda: Settings(_env_file=None, worker_concurrency=3, llm_provider="fake"))
+    monkeypatch.setattr(main_mod, "build_handlers", lambda s: {"h": object()})
+    monkeypatch.setattr(main_mod, "serve", lambda connect, handlers, poll, sweep=None: calls.append((handlers, sweep)))
+    main_mod.main()
+    assert len(calls) == 3
+    assert sum(1 for _, sw in calls if sw is not None) == 1
+    assert len({id(h) for h, _ in calls}) == 3  # each thread has its own handlers (the renderer isn't thread-safe)
+
+
+def test_two_connections_claim_a_job_once():
+    """Concurrent claims (one per worker thread) never take the same job. Nothing is committed."""
+    from worker import jobs
+    from worker.config import Settings
+    from worker.db import connect
+
+    setup = connect(Settings())
+    setup.autocommit = True
+    a, b = connect(Settings()), connect(Settings())
+    try:
+        jid = setup.execute(
+            "insert into jobs (kind, payload, created_at) values ('claim_test', '{}', '2000-01-01') returning id"
+        ).fetchone()["id"]  # the oldest job, so it's the one both try first
+        first = a.execute(jobs._CLAIM_SQL).fetchone()  # a's transaction stays open, holding the row
+        second = b.execute(jobs._CLAIM_SQL).fetchone()
+        assert first["id"] == jid
+        assert second is None or second["id"] != jid
+    finally:
+        a.rollback()
+        b.rollback()
+        setup.execute("delete from jobs where kind = 'claim_test'")
+        for c in (a, b, setup):
+            c.close()

@@ -7,7 +7,9 @@ test.beforeEach(() => test.slow());
 const SHORT = "http://127.0.0.1:8765/short-article.html";
 const SIGN_IN_WALL = "http://127.0.0.1:8765/sign-in-wall.html";
 const PAYWALLED = "We can't read this page, it needs a login. Paste the course's syllabus or table of contents instead.";
-const QUESTION = "This looks like a single article rather than a full curriculum. Expand this topic with related guides?";
+const DECISION = "Some of your sources don't look right for this goal.";
+const STARTING_POINT =
+  "We couldn't find good learning material for this goal, so this map is a starting point. Add your own sources to improve it.";
 
 const map = (page: Page) => page.getByRole("navigation", { name: "Topic map" });
 const sources = (page: Page) => page.getByRole("list", { name: "Your sources" });
@@ -34,24 +36,18 @@ test("pasted outline gives a map that follows it", async ({ page }) => {
   await expect(page.getByRole("dialog").getByText(/^Main reference: Your outline/)).toBeVisible();
 });
 
-test("one short link asks to expand; keeping it small builds the map", async ({ page }) => {
+test("one short link builds a map that follows it", async ({ page }) => {
   await start(page, { links: [SHORT] });
-  await expect(page.getByText(QUESTION)).toBeVisible({ timeout: 45_000 });
-  await page.getByRole("button", { name: "Keep it small" }).click();
-  await expect(map(page)).toBeVisible({ timeout: 45_000 });
+  await expect(map(page)).toBeVisible({ timeout: 60_000 });
+  await expect(sources(page).getByRole("listitem").filter({ hasText: "One short note on joins" })).toBeVisible();
 });
 
-test("one short link asks to expand; expanding builds a full map", async ({ page }) => {
-  await start(page, { links: [SHORT] });
-  await expect(page.getByText(QUESTION)).toBeVisible({ timeout: 45_000 });
-  await page.getByRole("button", { name: "Expand" }).click();
-  await expect(map(page)).toBeVisible({ timeout: 45_000 });
-  await expect(map(page).getByRole("button", { name: /^\d+ / })).toHaveCount(6);
-});
-
-test("a paywalled link shows the paste-outline message", async ({ page }) => {
+test("a paywalled link asks first; using it anyway gives a starting-point map", async ({ page }) => {
   await start(page, { links: [SIGN_IN_WALL] });
-  await expect(map(page)).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByRole("heading", { name: DECISION })).toBeVisible({ timeout: 45_000 });
+  await page.getByRole("button", { name: "Use mine anyway" }).click();
+  await expect(map(page)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(STARTING_POINT)).toBeVisible();
   const failed = sources(page).getByRole("listitem").filter({ hasText: PAYWALLED });
   await expect(failed).toBeVisible();
   await failed.getByRole("button", { name: "Paste an outline" }).click();
@@ -62,10 +58,8 @@ test("a paywalled link shows the paste-outline message", async ({ page }) => {
 
 test("one of two links fails and the map is still built", async ({ page }) => {
   await start(page, { links: [SIGN_IN_WALL, FIXTURE_ARTICLE] });
-  // Reading carries on with the link that worked; a single article asks whether to expand.
-  await expect(page.getByText(QUESTION)).toBeVisible({ timeout: 45_000 });
-  await page.getByRole("button", { name: "Keep it small" }).click();
-  await expect(map(page)).toBeVisible({ timeout: 45_000 });
+  // Reading carries on with the link that worked, and the map is built from it.
+  await expect(map(page)).toBeVisible({ timeout: 60_000 });
   await expect(sources(page).getByRole("listitem").filter({ hasText: PAYWALLED })).toBeVisible();
   await expect(sources(page).getByRole("listitem").filter({ hasText: "A practical guide to SQL" })).toContainText(
     /Highly relevant|Partly relevant/,
