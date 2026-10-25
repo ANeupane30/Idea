@@ -66,11 +66,61 @@ export const LABEL_TEXT: Record<RelevanceLabel, string> = {
   off_topic: "Off-topic",
 };
 
-export const TYPE_TEXT: Record<string, string> = { web: "Web page", youtube: "YouTube", pdf: "PDF" };
+export const TYPE_TEXT: Record<string, string> = { web: "Web page", youtube: "YouTube", pdf: "PDF", outline: "Outline" };
+
+/** The worker's message for a page behind a login (worker/src/worker/ingest/messages.py). */
+export const PAYWALLED =
+  "We can't read this page, it needs a login. Paste the course's syllabus or table of contents instead.";
+
+export const OUTLINE_MAX = 20000;
+
+/** A topic's main reference, as public.goal_main_references returns it. */
+export type MainReferenceRow = {
+  source_title: string;
+  source_type: string;
+  url_or_file: string;
+  page: number | null;
+  timestamp_start: number | null;
+  anchor: string | null;
+};
+
+export type MainReference = { title: string; label: string; href: string | null };
+
+function videoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.hostname === "youtu.be") return u.pathname.slice(1) || null;
+    return u.searchParams.get("v") ?? (u.pathname.match(/^\/(?:shorts|embed)\/([\w-]+)/)?.[1] ?? null);
+  } catch {
+    return null;
+  }
+}
+
+/** Its label and link, as the worker builds lesson citations (lessons/content.py). */
+export function mainReference(r: MainReferenceRow): MainReference {
+  if (r.source_type === "youtube") {
+    const id = videoId(r.url_or_file);
+    const s = Math.floor(Number(r.timestamp_start ?? 0));
+    return {
+      title: r.source_title,
+      label: r.timestamp_start != null ? `at ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : "",
+      href: id ? `https://www.youtube.com/watch?v=${id}&t=${s}s` : null,
+    };
+  }
+  if (r.source_type === "web") {
+    return {
+      title: r.source_title,
+      label: "",
+      href: r.anchor ? `${r.url_or_file}#:~:text=${encodeURIComponent(r.anchor)}` : r.url_or_file,
+    };
+  }
+  // PDFs live in a private bucket; an outline is the learner's own text.
+  return { title: r.source_title, label: r.source_type === "pdf" && r.page != null ? `page ${r.page}` : "", href: null };
+}
 
 export type SourceRow = {
   id: string;
-  type: "web" | "youtube" | "pdf";
+  type: "web" | "youtube" | "pdf" | "outline";
   url_or_file: string;
   file_name: string | null;
   title: string | null;

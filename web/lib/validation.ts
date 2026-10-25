@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { linkSchema } from "@/lib/sources";
+import { linkSchema, OUTLINE_MAX } from "@/lib/sources";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -45,15 +45,24 @@ export const startSchema = z
     level: z.enum(LEVELS, "Choose how much you already know."),
     learning_style: styleSchema.default("reading"),
     links: z.array(z.string()).default([]),
+    outline: z.string().nullish(),
     intent: z.string().optional(),
   })
-  .transform((v) => ({ ...v, links: v.intent === "pick" ? [] : v.links.filter((l) => l.trim() !== "") }))
+  .transform((v) => {
+    const pick = v.intent === "pick";
+    return {
+      ...v,
+      links: pick ? [] : v.links.filter((l) => l.trim() !== ""),
+      outline: pick || !v.outline?.trim() ? null : v.outline,
+    };
+  })
   .pipe(
     z.object({
       title: z.string(),
       level: z.enum(LEVELS),
       learning_style: styleSchema,
       links: z.array(linkSchema).max(MAX_START_LINKS, TOO_MANY_LINKS),
+      outline: z.string().max(OUTLINE_MAX, "Outlines can be up to 20,000 characters.").nullable(),
       intent: z.string().optional(),
     }),
   );
@@ -87,7 +96,7 @@ export function dbErrorToMessage(err: { message: string }): string {
   if (m.includes("goal_archived")) return "Unarchive this goal to add sources.";
   if (m.includes("invalid_source")) return "That link or file can't be added.";
   if (m.includes("goal_limit_reached")) return "Free plan allows 2 active goals. Archive one to add another.";
-  if (m.includes("not_clarifying") || m.includes("not_failed"))
+  if (m.includes("not_clarifying") || m.includes("not_failed") || m.includes("goal_not_awaiting_expand"))
     return "This goal's topic map has already moved on. Refresh the page.";
   if (m.includes("invalid_answer")) return "Please write an answer of up to 1000 characters.";
   if (m.includes("too_many_links")) return TOO_MANY_LINKS;

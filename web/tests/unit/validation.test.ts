@@ -81,3 +81,22 @@ describe("dbErrorToMessage for links", () => {
     expect(dbErrorToMessage({ message: "too_many_links" })).toBe("Add up to 3 links.");
   });
 });
+
+describe("startSchema outline", () => {
+  const base = { title: "Learn SQL", level: "beginner", learning_style: "reading", links: [] };
+  it("treats a whitespace-only outline as none", () => {
+    expect(startSchema.parse({ ...base, outline: "  \n  " }).outline).toBeNull();
+  });
+  it("keeps an outline", () => {
+    expect(startSchema.parse({ ...base, outline: "1. Tables\n2. Joins" }).outline).toBe("1. Tables\n2. Joins");
+  });
+  it("rejects an outline over 20,000 characters", () => {
+    const r = startSchema.safeParse({ ...base, outline: "x".repeat(20001) });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0].message).toBe("Outlines can be up to 20,000 characters.");
+  });
+  it("ignores the outline when the learner asks us to pick", () => {
+    expect(startSchema.parse({ ...base, outline: "1. A", intent: "pick" }).outline).toBeNull();
+  });
+});
+

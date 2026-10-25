@@ -47,6 +47,15 @@ export async function answerClarification(goalId: string, answer: string): Promi
   return { ok: true };
 }
 
+/** "Expand this topic with related guides?": build a fuller map (true) or keep to the material (false). */
+export async function answerExpand(goalId: string, expand: boolean): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("answer_expand", { p_goal_id: goalId, p_expand: expand });
+  if (error) return { ok: false, error: dbErrorToMessage(error) };
+  revalidatePath(`/goals/${goalId}`);
+  return { ok: true };
+}
+
 export async function retryTopicMap(goalId: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.rpc("retry_topic_map", { p_goal_id: goalId });

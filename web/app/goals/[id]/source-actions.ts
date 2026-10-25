@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { detectLinkType, isUploadPath, linkSchema } from "@/lib/sources";
+import { detectLinkType, isUploadPath, linkSchema, OUTLINE_MAX } from "@/lib/sources";
 import { dbErrorToMessage, GENERIC_ERROR, type ActionResult } from "@/lib/validation";
 
 const CANT_ADD = "That link or file can't be added.";
@@ -20,6 +20,27 @@ export async function addLinkSource(goalId: string, url: string): Promise<Action
     user_id: auth.user.id,
     type: detectLinkType(parsed.data),
     url_or_file: parsed.data,
+  });
+  if (error) return { ok: false, error: dbErrorToMessage(error) };
+  revalidatePath(`/goals/${goalId}`);
+  return { ok: true };
+}
+
+/** A pasted syllabus or table of contents, read like any other source. */
+export async function addOutlineSource(goalId: string, text: string): Promise<ActionResult> {
+  if (!text.trim()) return { ok: false, error: "Paste your outline first." };
+  if (text.length > OUTLINE_MAX) return { ok: false, error: "Outlines can be up to 20,000 characters." };
+
+  const supabase = await createClient();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return { ok: false, error: GENERIC_ERROR };
+
+  const { error } = await supabase.from("sources").insert({
+    goal_id: goalId,
+    user_id: auth.user.id,
+    type: "outline",
+    url_or_file: "outline",
+    outline_text: text,
   });
   if (error) return { ok: false, error: dbErrorToMessage(error) };
   revalidatePath(`/goals/${goalId}`);

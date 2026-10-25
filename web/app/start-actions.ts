@@ -11,6 +11,7 @@ export async function startLearning(formData: FormData): Promise<ActionResult> {
     level: formData.get("level"),
     learning_style: formData.get("learning_style") ?? undefined,
     links: formData.getAll("links").map(String),
+    outline: formData.get("outline")?.toString() ?? null,
     intent: formData.get("intent") ?? undefined,
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? GENERIC_ERROR };
@@ -25,6 +26,7 @@ export async function startLearning(formData: FormData): Promise<ActionResult> {
     p_level: parsed.data.level,
     p_learning_style: parsed.data.learning_style,
     p_links: parsed.data.links,
+    p_outline: parsed.data.outline,
   });
   if (error || !data) return { ok: false, error: dbErrorToMessage(error ?? { message: "" }) };
   redirect(`/goals/${data}`);
