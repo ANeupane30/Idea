@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(20);
+select plan(15);
 
 -- Users: A and B signed in, G a guest.
 insert into auth.users (id, email, is_anonymous) values
@@ -30,46 +30,26 @@ select throws_ok($$select public.create_goal_with_sources('Too long', 'beginner'
 reset role;
 select is((select map_status || ':' || (reading_started_at is not null)::text from public.goals
            where title = 'With link' and user_id = '00000000-0000-0000-0000-0000000007a0'),
-  'reading_sources:true', 'a goal with sources starts by reading them');
+  'understanding:true', 'a goal with sources starts by understanding (its sources are read meanwhile)');
 select is((select count(*) from public.jobs j join public.goals g on g.id::text = j.payload->>'goal_id'
            where g.title = 'With link' and g.user_id = '00000000-0000-0000-0000-0000000007a0' and j.kind = 'topic_map'),
-  0::bigint, 'no topic_map job until the sources are read');
+  0::bigint, 'no topic_map job until the sources are read and checked');
 select is((select map_status from public.goals where title = 'No sources' and user_id = '00000000-0000-0000-0000-0000000007a0'),
-  'pending', 'a goal without sources is pending');
+  'understanding', 'a goal without sources starts by understanding too');
 select is((select count(*) from public.jobs j join public.goals g on g.id::text = j.payload->>'goal_id'
            where g.title = 'No sources' and g.user_id = '00000000-0000-0000-0000-0000000007a0' and j.kind = 'topic_map'),
-  1::bigint, 'and gets a topic_map job');
+  0::bigint, 'and gets no topic_map job (sources come first)');
 select is((select count(*) from public.sources s join public.goals g on g.id = s.goal_id
            where g.title = 'Blank outline' and g.user_id = '00000000-0000-0000-0000-0000000007a0'),
   0::bigint, 'a blank outline adds no source');
 select is((select map_status from public.goals where title = 'Blank outline' and user_id = '00000000-0000-0000-0000-0000000007a0'),
-  'pending', 'a blank outline counts as no sources');
+  'understanding', 'a blank outline counts as no sources');
 select is((select s.type || ':' || s.url_or_file || ':' || left(s.outline_text, 9) from public.sources s
            join public.goals g on g.id = s.goal_id
            where g.title = 'Outline' and g.user_id = '00000000-0000-0000-0000-0000000007a0'),
   'outline:outline:1. Tables', 'an outline becomes an outline source');
 
--- answer_expand
-update public.goals set map_status = 'awaiting_expand'
-where title = 'With link' and user_id = '00000000-0000-0000-0000-0000000007a0';
-set local role authenticated;
-set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000007b0"}';
-select throws_ok($$select public.answer_expand(
-    (select id from public.goals where title = 'With link' and user_id = '00000000-0000-0000-0000-0000000007a0'), true)$$,
-  'P0001', 'goal_not_awaiting_expand', 'another user cannot answer');
-set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000007a0"}';
-select lives_ok($$select public.answer_expand(
-    (select id from public.goals where title = 'With link' and user_id = auth.uid()), true)$$, 'owner answers Expand');
-select throws_ok($$select public.answer_expand(
-    (select id from public.goals where title = 'With link' and user_id = auth.uid()), false)$$,
-  'P0001', 'goal_not_awaiting_expand', 'a second answer is rejected');
-reset role;
-select is((select map_status || ':' || expand::text from public.goals
-           where title = 'With link' and user_id = '00000000-0000-0000-0000-0000000007a0'),
-  'building_map:true', 'answering moves the goal to building_map');
-select is((select count(*) from public.jobs j join public.goals g on g.id::text = j.payload->>'goal_id'
-           where g.title = 'With link' and g.user_id = '00000000-0000-0000-0000-0000000007a0' and j.kind = 'topic_map'),
-  1::bigint, 'and queues the map');
+-- (answer_expand was replaced by answer_source_decision: see sources_first_test.sql.)
 
 -- An outline counts toward a guest's 3 sources.
 insert into public.goals (id, user_id, title, map_status) values

@@ -57,7 +57,7 @@ select throws_ok($$insert into public.sources (goal_id, user_id, type, url_or_fi
   '42501', null, 'origin is not user-writable');
 
 reset role;
-select is((select map_status from public.goals where title = 'Learn SQL' and user_id = '00000000-0000-0000-0000-0000000006a0'), 'reading_sources', 'a goal with links reads them first (stage 2)');
+select is((select map_status from public.goals where title = 'Learn SQL' and user_id = '00000000-0000-0000-0000-0000000006a0'), 'understanding', 'a goal with links starts by understanding (sources first)');
 select is((select count(*) from public.goals where user_id = '00000000-0000-0000-0000-0000000006a0'),
   1::bigint, 'failed calls leave no goal behind');
 select is(
