@@ -326,8 +326,9 @@ class FakeLLM:
             return LLMResult(fake_verdicts(user), 200, 60, model)
         if schema is MermaidFix:
             return LLMResult(MermaidFix(mermaid="graph TD; A-->B"), 50, 20, model)
-        clarify = "[clarify]" in user and "<clarification_answer>" not in user
-        name = "topic_map_clarify.json" if clarify else "topic_map.json"
+        clarify = "[clarify]" in user and "<clarification_answer>" not in user and "<structure>" not in user
+        follow = "<rule>follow</rule>" in user
+        name = "topic_map_follow.json" if follow else "topic_map_clarify.json" if clarify else "topic_map.json"
         output = schema.model_validate_json((self._dir / name).read_text(encoding="utf-8"))
         return LLMResult(output, 100, 200, model)
 

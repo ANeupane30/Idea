@@ -7,9 +7,11 @@ import { button } from "@/components/ui/buttons";
 import { StatusChip } from "@/components/ui/chips";
 import { Icon } from "@/components/ui/icon";
 import { createBrowserClient } from "@/lib/supabase/client";
-import { linkSchema, PDF_MAX_BYTES, PDF_TOO_BIG, STAGE_TEXT, stageOf, type SourceRow } from "@/lib/sources";
+import { linkSchema, OUTLINE_MAX, PDF_MAX_BYTES, PDF_TOO_BIG, stageOf, type SourceRow } from "@/lib/sources";
 import { GENERIC_ERROR, type ActionResult } from "@/lib/validation";
-import { addLinkSource, addPdfSource } from "./source-actions";
+import type { AddSourceTab } from "./add-source-context";
+import { addLinkSource, addOutlineSource, addPdfSource } from "./source-actions";
+import { SourceStepper } from "./SourceStepper";
 import { sourceTitle, TYPE_ICON } from "./SourceList";
 
 type Props = {
@@ -21,13 +23,15 @@ type Props = {
   onRetry: (id: string) => void;
   /** Why the last "Try again" failed (shown here, since the page behind is inert). */
   retryError?: string | null;
+  /** The tab to open on (the paywall message opens Paste an outline). */
+  initialTab?: AddSourceTab;
 };
 
 /**
  * Add a link or a PDF, and watch each one being added: the sources still being processed or that
  * failed, plus those that finished while the dialog was open.
  */
-export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry, retryError }: Props) {
+export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry, retryError, initialTab = "link" }: Props) {
   const router = useRouter();
   const ref = useRef<HTMLDialogElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -35,6 +39,10 @@ export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry, 
   const titleId = useId();
   const hintId = useId();
   const [url, setUrl] = useState("");
+  const [outline, setOutline] = useState("");
+  const [tab, setTab] = useState<AddSourceTab>(initialTab);
+  const linkTabId = useId();
+  const outlineTabId = useId();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -49,6 +57,7 @@ export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry, 
     if (open) {
       setSettled(new Set(rows.filter((r) => r.status === "ready").map((r) => r.id)));
       setError(null);
+      setTab(initialTab);
     }
   }
   const listed = rows.filter((r) => !settled.has(r.id));
@@ -127,7 +136,60 @@ export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry, 
         </button>
       </div>
 
-      <form onSubmit={submitLink} className="mt-6">
+      <div role="tablist" aria-label="Kind of source" className="mt-4 flex gap-2">
+        <button
+          type="button"
+          role="tab"
+          id={linkTabId}
+          aria-selected={tab === "link"}
+          onClick={() => setTab("link")}
+          className={button(tab === "link" ? "tonal" : "text")}
+        >
+          Link or PDF
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id={outlineTabId}
+          aria-selected={tab === "outline"}
+          onClick={() => setTab("outline")}
+          className={button(tab === "outline" ? "tonal" : "text")}
+        >
+          Paste an outline
+        </button>
+      </div>
+
+      {tab === "outline" ? (
+        <form
+          role="tabpanel"
+          aria-labelledby={outlineTabId}
+          className="mt-4 flex flex-col gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            run(() => addOutlineSource(goalId, outline), () => setOutline(""));
+          }}
+        >
+          <textarea
+            aria-label="Your outline"
+            value={outline}
+            onChange={(e) => setOutline(e.target.value)}
+            maxLength={OUTLINE_MAX}
+            rows={6}
+            placeholder={"1. First topic\n2. Second topic"}
+            className="w-full resize-y rounded-2xl border border-outline bg-surface p-4 text-body-l text-on-surface placeholder:text-on-surface-variant focus:border-2 focus:border-primary focus:outline-none"
+          />
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-body-m text-on-surface-variant">
+              {outline.length.toLocaleString("en-US")} / {OUTLINE_MAX.toLocaleString("en-US")}
+            </p>
+            <button type="submit" disabled={isPending || !outline.trim()} className={button("filled")}>
+              Add outline
+            </button>
+          </div>
+        </form>
+      ) : (
+      <div role="tabpanel" aria-labelledby={linkTabId}>
+      <form onSubmit={submitLink} className="mt-4">
         <label htmlFor={`${titleId}-url`} className="text-label-l">
           Paste a link to a web page or YouTube video
         </label>
@@ -180,6 +242,8 @@ export function AddSourceDialog({ goalId, userId, rows, open, onClose, onRetry, 
           PDFs need selectable text, up to 25 MB
         </p>
       </div>
+      </div>
+      )}
       {error && <FormError error={error} className="mt-3" />}
 
       <hr className="my-6 border-outline-variant" />
@@ -229,23 +293,7 @@ function AddingRow({ source: s, onRetry }: { source: SourceRow; onRetry: () => v
             {s.relevance_label && <StatusChip kind="relevance" value={s.relevance_label} />}
           </p>
         ) : (
-          <ol aria-label="Progress" className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-label-m">
-            {STAGE_TEXT.map((text, i) => (
-              <li
-                key={text}
-                aria-current={i === stage ? "step" : undefined}
-                className={`flex items-center gap-1 ${i === stage ? "text-primary" : "text-on-surface-variant"}`}
-              >
-                <Icon
-                  name={i < stage ? "check_circle" : i === stage ? "progress_activity" : "radio_button_unchecked"}
-                  filled={i < stage}
-                  size={16}
-                  className={i === stage ? "motion-safe:animate-spin" : ""}
-                />
-                {text}
-              </li>
-            ))}
-          </ol>
+          <SourceStepper stage={stage} />
         )}
       </div>
     </li>

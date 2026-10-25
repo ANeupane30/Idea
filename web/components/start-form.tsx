@@ -5,6 +5,7 @@ import { FormError } from "@/components/form-error";
 import { button, field } from "@/components/ui/buttons";
 import { FilterChip } from "@/components/ui/chips";
 import { Icon } from "@/components/ui/icon";
+import { OUTLINE_MAX } from "@/lib/sources";
 import { LEARNING_STYLES, MAX_START_LINKS, STYLE_LABELS, type ActionResult } from "@/lib/validation";
 
 const LEVELS = [
@@ -30,6 +31,9 @@ export function StartForm({
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const sourcesId = useId();
   const linksTabId = useId();
+  const outlineTabId = useId();
+  const [tab, setTab] = useState<"links" | "outline">("links");
+  const [outline, setOutline] = useState("");
 
   return (
     <form action={formAction} className="flex w-full flex-col gap-6">
@@ -101,11 +105,43 @@ export function StartForm({
               blank and we&apos;ll find the best materials for your style.
             </p>
             <div role="tablist" aria-label="Your sources" className="flex gap-2">
-              <button type="button" role="tab" id={linksTabId} aria-selected="true" className={button("tonal")}>
+              <button
+                type="button"
+                role="tab"
+                id={linksTabId}
+                aria-selected={tab === "links"}
+                onClick={() => setTab("links")}
+                className={button(tab === "links" ? "tonal" : "text")}
+              >
                 Links
               </button>
+              <button
+                type="button"
+                role="tab"
+                id={outlineTabId}
+                aria-selected={tab === "outline"}
+                onClick={() => setTab("outline")}
+                className={button(tab === "outline" ? "tonal" : "text")}
+              >
+                Paste an outline
+              </button>
             </div>
-            <div role="tabpanel" aria-labelledby={linksTabId} className="flex flex-col gap-2">
+            <div role="tabpanel" aria-labelledby={outlineTabId} hidden={tab !== "outline"} className="flex flex-col gap-1">
+              <textarea
+                name="outline"
+                aria-label="Your outline"
+                value={outline}
+                onChange={(e) => setOutline(e.target.value)}
+                maxLength={OUTLINE_MAX}
+                rows={6}
+                placeholder={"1. First topic\n2. Second topic"}
+                className="w-full resize-y rounded-2xl border border-outline bg-surface p-4 text-body-l text-on-surface placeholder:text-on-surface-variant focus:border-2 focus:border-primary focus:outline-none"
+              />
+              <p className="text-body-m text-on-surface-variant">
+                {outline.length.toLocaleString("en-US")} / {OUTLINE_MAX.toLocaleString("en-US")}
+              </p>
+            </div>
+            <div role="tabpanel" aria-labelledby={linksTabId} hidden={tab !== "links"} className="flex flex-col gap-2">
               {Array.from({ length: MAX_START_LINKS }, (_, i) => (
                 <input
                   key={i}

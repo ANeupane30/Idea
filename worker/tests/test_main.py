@@ -72,3 +72,24 @@ def test_other_errors_roll_back_and_keep_the_connection():
     assert good.rollbacks == 1
     assert sleeps == [0.5]
     assert made == [good]
+
+
+def test_serve_sweeps_before_each_run_and_survives_sweep_errors():
+    calls = []
+
+    def sweep(conn):
+        calls.append(conn)
+        if len(calls) == 1:
+            raise RuntimeError("sweep failed")
+        return 0
+
+    script = [True, True]
+
+    def run(conn, handlers):
+        if not script:
+            raise _Stop()
+        return script.pop(0)
+
+    with pytest.raises(_Stop):
+        main_mod.serve(lambda: FakeConn(), {}, poll_interval_s=0.5, sleep=lambda s: None, run=run, sweep=sweep)
+    assert len(calls) == 3

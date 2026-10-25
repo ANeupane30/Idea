@@ -7,7 +7,7 @@ import { button } from "@/components/ui/buttons";
 import { Icon } from "@/components/ui/icon";
 import type { SourceRow } from "@/lib/sources";
 import { GENERIC_ERROR } from "@/lib/validation";
-import { AddSourceContext } from "./add-source-context";
+import { AddSourceContext, type AddSourceTab } from "./add-source-context";
 import { AddSourceDialog } from "./AddSourceDialog";
 import { GuestSaveCard } from "./GuestSaveCard";
 import { retrySource } from "./source-actions";
@@ -48,6 +48,7 @@ export function Workspace({
   const router = useRouter();
   const { rows, discovering } = useSourceRows(goalId, sources, initialDiscovering);
   const [open, setOpen] = useState(openAddSource && !archived);
+  const [tab, setTab] = useState<AddSourceTab>("link");
   const [retryError, setRetryError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -65,7 +66,16 @@ export function Workspace({
   }
 
   return (
-    <AddSourceContext value={archived ? null : () => setOpen(true)}>
+    <AddSourceContext
+      value={
+        archived
+          ? null
+          : (options) => {
+              setTab(options?.tab ?? "link");
+              setOpen(true);
+            }
+      }
+    >
       <div className="mt-6 flex flex-col gap-8 xl:flex-row xl:items-start">
         <div className="min-w-0 flex-1">
           <h2 className="text-title-m text-on-surface">
@@ -103,6 +113,7 @@ export function Workspace({
             Add source
           </button>
           <AddSourceDialog
+            initialTab={tab}
             goalId={goalId}
             userId={userId}
             rows={rows}

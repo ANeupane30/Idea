@@ -9,6 +9,7 @@ import { MasteryMeter } from "@/components/ui/mastery-meter";
 import type { MasteryLabel } from "@/lib/quiz";
 import type { NodeCoverage } from "@/lib/sources";
 import type { TreeNode } from "@/lib/topic-tree";
+import type { MainReference } from "@/lib/sources";
 import { useAddSource } from "./add-source-context";
 
 export type Level = "beginner" | "intermediate" | "advanced";
@@ -59,10 +60,13 @@ export function TopicMap({
   tree,
   coverage,
   mastery,
+  mainReferences,
 }: {
   goalId: string;
   goalTitle: string;
   tree: TreeNode[];
+  /** Each topic's main reference (chapter, section, page or timestamp), when it has one. */
+  mainReferences?: Record<string, MainReference>;
   /** Per-subtopic coverage; chips show only when given (the goal has a ready source). */
   coverage?: Record<string, NodeCoverage>;
   /** Per-subtopic decayed mastery; a bar shows on topics the learner has practised. */
@@ -200,6 +204,7 @@ export function TopicMap({
             goalId={goalId}
             coverage={coverage?.[selection.node.id]}
             mastery={mastery?.[selection.node.id]}
+            mainReference={mainReferences?.[selection.node.id]}
             panelRef={panelRef}
             onClose={close}
             onLeave={() => setSelectedId(null)}
@@ -250,6 +255,7 @@ function DetailPanel({
   goalId,
   coverage,
   mastery,
+  mainReference,
   panelRef,
   onClose,
   onLeave,
@@ -258,6 +264,7 @@ function DetailPanel({
   selection: Selection;
   goalId: string;
   coverage?: NodeCoverage;
+  mainReference?: MainReference;
   mastery?: { decayed: number; label: MasteryLabel };
   panelRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
@@ -303,10 +310,11 @@ function DetailPanel({
       <p className="mt-3 text-body-m text-on-surface-variant">
         {node.summary ?? <span className="italic">No summary yet.</span>}
       </p>
+      {mainReference && <MainReferenceLine reference={mainReference} />}
       {gap && addSource ? (
         <>
           <p className="mt-4 text-body-m text-on-surface-variant">Add a source on this topic to build its lesson.</p>
-          <button type="button" onClick={addSource} className={button("outlined", "mt-4 w-full")}>
+          <button type="button" onClick={() => addSource()} className={button("outlined", "mt-4 w-full")}>
             <Icon name="add" />
             Add source
           </button>
@@ -324,5 +332,21 @@ function DetailPanel({
         </div>
       )}
     </div>
+  );
+}
+
+function MainReferenceLine({ reference: r }: { reference: MainReference }) {
+  const text = `Main reference: ${r.title}${r.label ? `, ${r.label}` : ""}`;
+  return (
+    <p className="mt-3 flex items-start gap-1.5 text-body-m text-on-surface-variant [overflow-wrap:anywhere]">
+      <Icon name="menu_book" size={18} className="mt-0.5" />
+      {r.href ? (
+        <a href={r.href} target="_blank" rel="noopener noreferrer" className="underline">
+          {text}
+        </a>
+      ) : (
+        <span>{text}</span>
+      )}
+    </p>
   );
 }

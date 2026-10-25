@@ -39,4 +39,20 @@ describe("StartForm", () => {
     expect(pick.name).toBe("intent");
     expect(pick.value).toBe("pick");
   });
+
+  it("has a Paste an outline tab with a character count", () => {
+    render(<StartForm action={action} />);
+    fireEvent.click(screen.getByRole("button", { name: "Where do you want to learn from?" }));
+    const tab = screen.getByRole("tab", { name: "Paste an outline" });
+    expect(tab.getAttribute("aria-selected")).toBe("false");
+    fireEvent.click(tab);
+    expect(tab.getAttribute("aria-selected")).toBe("true");
+    const outline = screen.getByRole("textbox", { name: "Your outline" }) as HTMLTextAreaElement;
+    expect(outline.name).toBe("outline");
+    expect(outline.maxLength).toBe(20000);
+    expect(screen.getByText("0 / 20,000")).toBeTruthy();
+    fireEvent.change(outline, { target: { value: "1. Tables" } });
+    expect(screen.getByText("9 / 20,000")).toBeTruthy();
+  });
 });
+

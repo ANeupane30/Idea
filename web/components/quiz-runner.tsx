@@ -72,7 +72,7 @@ export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props)
       return setState(
         next.error === "no_sources"
           ? { kind: "error", code: "no_sources" }
-          : { kind: "error", code: "failed", bankTopic: next.subtopic_id },
+          : { kind: "error", code: next.error === "busy" ? "busy" : "failed", bankTopic: next.subtopic_id },
       );
     }
     if ("limit" in next) return setState({ kind: "error", code: next.limit });
@@ -124,7 +124,7 @@ export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props)
       setState({ kind: "loading" });
       return void start();
     }
-    if (state.code === "failed" && state.bankTopic) {
+    if ((state.code === "failed" || state.code === "busy") && state.bankTopic) {
       const res = await retryQuizBank(state.bankTopic);
       // "not_failed" (another tab already retried) maps to "failed": carry on and poll.
       if (!res.ok && res.code !== "failed") return setState({ kind: "error", code: res.code });
@@ -143,7 +143,7 @@ export function QuizRunner({ goalId, subtopicId, mode, title, overview }: Props)
   }
 
   if (state.kind === "error") {
-    const retryable = state.code === "failed" || state.code === "exhausted";
+    const retryable = state.code === "failed" || state.code === "busy" || state.code === "exhausted";
     return (
       <div className="mt-8 flex flex-col items-start gap-3 rounded-2xl bg-surface-container-high p-5">
         <FormError error={QUIZ_ERROR_TEXT[state.code] ?? QUIZ_ERROR_TEXT.failed} />

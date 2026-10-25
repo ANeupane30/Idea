@@ -22,11 +22,13 @@ GENERIC_MESSAGE = "Something went wrong building this. Please try again."
 AI_BUSY = "Our AI is busy right now. Try again later."
 
 
+def is_rate_limited(error: BaseException) -> bool:
+    return isinstance(error, (openai.RateLimitError, anthropic.RateLimitError))
+
+
 def final_message(error: Exception, default: str) -> str:
     """The learner-facing message for a job that failed after its last retry."""
-    if isinstance(error, (openai.RateLimitError, anthropic.RateLimitError)):
-        return AI_BUSY
-    return default
+    return AI_BUSY if is_rate_limited(error) else default
 
 
 @dataclass

@@ -10,6 +10,7 @@ describe("quiz copy and errors", () => {
       guest_quiz_limit: "Sign up free to get more questions.",
       nothing_to_review: "Take a topic quiz first, then come back for a review.",
       failed: "We couldn't prepare questions for this topic. Please try again.",
+      busy: "Our AI is busy right now. Try again later.",
     });
     expect(LABEL_TEXT).toEqual({ strong: "Strong", developing: "Developing", weak: "Weak" });
   });

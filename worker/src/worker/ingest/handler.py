@@ -18,11 +18,12 @@ from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
 from worker.config import DEFAULT_USER_AGENT
-from worker.goal_ready import maybe_start_discovery
+from worker.goal_ready import finish_reading, maybe_start_discovery
 from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
 from worker.ingest.embeddings import ensure_subtopic_embeddings
+from worker.ingest.extract_outline import extract_outline
 from worker.ingest.extract_pdf import extract_pdf
 from worker.ingest.extract_web import Renderer, extract_web
 from worker.ingest.extract_youtube import TranscriptSource, extract_youtube
@@ -37,10 +38,11 @@ from worker.ingest.mapping import (
 )
 from worker.ingest.punctuate import repair_punctuation
 from worker.ingest.storage import Storage
-from worker.ingest.types import Extracted, Segment
+from worker.ingest.types import Chunk, Extracted, Segment
 from worker.ingest.urls import content_hash, normalize_url, youtube_video_id
 from worker.jobs import Job, PermanentJobError
 from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult, record_usage
+from worker.structure import build_structure, fallback_headings
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +69,9 @@ def _check_caps(limits: Limits, duration_s: int | None, page_count: int | None, 
         raise PermanentJobError(messages.TOO_MANY_PAGES.format(n=limits.pdf_pages))
     if tokens is not None and tokens > limits.tokens:
         raise PermanentJobError(messages.TOO_LONG)
+
+
+MAIN_REFERENCE_MIN = 0.40  # the relevance at which a source covers a topic (as for lessons)
 
 
 class IngestHandler:
@@ -155,6 +160,8 @@ class IngestHandler:
             title = content["title"]
             if content["embed_model"] != self._embedder.model:
                 self._reembed(conn, src["id"], chash)
+            if content["structure"] is None:
+                self._rebuild_structure(conn, src, kind, key, pdf_bytes, chash, title, limits)
         else:
             title = self._ingest(conn, src, kind, key, pdf_bytes, chash, limits)
 
@@ -178,11 +185,15 @@ class IngestHandler:
                 " title = coalesce(%s, file_name, url_or_file) where id = %s and status = 'processing'",
                 (title, src["id"]),
             )
+            if src["origin"] == "user":
+                finish_reading(conn, src["goal_id"])
             return True
 
     def _identify(self, src) -> tuple[str, str, bytes | None]:
         if src["type"] == "web":
             return "web", normalize_url(src["url_or_file"]), None
+        if src["type"] == "outline":
+            return "outline", hashlib.sha256(src["outline_text"].encode()).hexdigest(), None
         if src["type"] == "youtube":
             video_id = youtube_video_id(src["url_or_file"])
             if video_id is None:
@@ -192,6 +203,8 @@ class IngestHandler:
         return "pdf", hashlib.sha256(data).hexdigest(), data
 
     def _extract(self, src, kind: str, key: str, pdf_bytes: bytes | None, limits: Limits) -> Extracted:
+        if kind == "outline":
+            return extract_outline(src["outline_text"])
         if kind == "web":
             return extract_web(
                 src["url_or_file"],
@@ -231,12 +244,15 @@ class IngestHandler:
 
         self._set_step(conn, src["id"], "embedding")
         vectors = self._embedder.embed_passages([c.text for c in chunks])
+        headings = extracted.headings or fallback_headings(extracted.title, chunks[0].text)
+        structure = build_structure(headings, chunks, outline=kind == "outline")
 
         with conn.transaction():
             inserted = conn.execute(
-                "insert into contents (content_hash, type, title, token_count, duration_s, page_count, embed_model)"
-                " values (%s, %s, %s, %s, %s, %s, %s) on conflict do nothing returning content_hash",
-                (chash, kind, extracted.title, tokens, extracted.duration_s, extracted.page_count, self._embedder.model),
+                "insert into contents (content_hash, type, title, token_count, duration_s, page_count, embed_model,"
+                " structure) values (%s, %s, %s, %s, %s, %s, %s, %s) on conflict do nothing returning content_hash",
+                (chash, kind, extracted.title, tokens, extracted.duration_s, extracted.page_count, self._embedder.model,
+                 Jsonb(structure)),
             ).fetchone()
             if inserted is not None:  # another worker may have stored the same content meanwhile
                 with conn.cursor() as cur:
@@ -259,6 +275,29 @@ class IngestHandler:
                     )
         return extracted.title
 
+    def _rebuild_structure(self, conn, src, kind, key, pdf_bytes, chash, title, limits) -> None:
+        """Content stored before structures existed: read the source again for its headings and
+        resolve them against the stored chunks. Best effort: on any error it is one item."""
+        with conn.transaction():
+            stored = conn.execute(
+                "select position, text from source_chunks where content_hash = %s order by position", (chash,)
+            ).fetchall()
+        chunks = [Chunk(r["position"], r["text"], 0, {}) for r in stored]
+        if not chunks:
+            return
+        try:
+            headings = self._extract(src, kind, key, pdf_bytes, limits).headings
+        except Exception:  # noqa: BLE001 - the source itself is fine; only its outline is missing
+            log.info("could not re-read %s for its structure", src["id"])
+            headings = []
+        headings = headings or fallback_headings(title, chunks[0].text)
+        structure = build_structure(headings, chunks, outline=kind == "outline")
+        with conn.transaction():
+            conn.execute(
+                "update contents set structure = %s where content_hash = %s and structure is null",
+                (Jsonb(structure), chash),
+            )
+
     def _reembed(self, conn: psycopg.Connection, source_id: UUID, chash: str) -> None:
         """Cached chunks embedded by another model aren't comparable with this model's vectors."""
         self._set_step(conn, source_id, "embedding")
@@ -279,12 +318,16 @@ class IngestHandler:
 
     # ------------------------------------------------------------ mapping
 
-    def _shortlist(self, conn: psycopg.Connection, goal_id: UUID, chash: str) -> list[tuple[UUID, ShortlistItem]]:
+    def _shortlist(
+        self, conn: psycopg.Connection, goal_id: UUID, chash: str
+    ) -> tuple[list[tuple[UUID, ShortlistItem]], dict[UUID, UUID]]:
+        """The subtopics worth rating, and each one's closest chunk (its main reference if it matches)."""
         with conn.transaction():
             rows = conn.execute(
-                "select s.id, s.title, s.summary, x.text, x.sim from subtopics s"
+                "select s.id, s.title, s.summary, x.chunk_id, x.text, x.sim from subtopics s"
                 " join subtopic_embeddings e on e.subtopic_id = s.id and e.embed_model = %s"
-                " cross join lateral (select c.text, 1 - (c.embedding <=> e.embedding) as sim from source_chunks c"
+                " cross join lateral (select c.id as chunk_id, c.text, 1 - (c.embedding <=> e.embedding) as sim"
+                "   from source_chunks c"
                 "   where c.content_hash = %s order by c.embedding <=> e.embedding limit %s) x"
                 " where s.goal_id = %s"
                 " order by coalesce((select p.position from subtopics p where p.id = s.parent_id), s.position),"
@@ -292,7 +335,9 @@ class IngestHandler:
                 (self._embedder.model, chash, _TOP_K, goal_id),
             ).fetchall()
         grouped: dict[UUID, dict] = {}
+        top: dict[UUID, UUID] = {}
         for r in rows:
+            top.setdefault(r["id"], r["chunk_id"])  # rows come closest first
             g = grouped.setdefault(r["id"], {"title": r["title"], "summary": r["summary"], "chunks": [], "best": 0.0})
             g["chunks"].append(r["text"])
             g["best"] = max(g["best"], float(r["sim"]))
@@ -300,7 +345,7 @@ class IngestHandler:
         return [
             (sid, ShortlistItem(f"s{i + 1}", g["title"], g["summary"], g["chunks"]))
             for i, (sid, g) in enumerate(shortlisted)
-        ]
+        ], top
 
     def _rate(self, conn, source_id, user_id, goal_title: str, batch: list[ShortlistItem]) -> MappingResponse:
         bill = self._bill(conn, source_id, user_id, "map")
@@ -330,7 +375,7 @@ class IngestHandler:
         source_id = src["id"]
         self._set_step(conn, source_id, "mapping")
         ensure_subtopic_embeddings(conn, self._embedder, src["goal_id"])
-        shortlist = self._shortlist(conn, src["goal_id"], chash)
+        shortlist, top_chunk = self._shortlist(conn, src["goal_id"], chash)
 
         rows: list[tuple[UUID, float, str]] = []
         for start in range(0, len(shortlist), BATCH):
@@ -360,6 +405,13 @@ class IngestHandler:
                 " title = coalesce(%s, file_name, url_or_file) where id = %s",
                 (relevance, relevance, top[2] if top else None, title, source_id),
             )
+            # A matched topic without a main reference (maps built from the goal alone) gets its closest chunk.
+            for sid, rel, _ in rows:
+                if rel >= MAIN_REFERENCE_MIN and sid in top_chunk:
+                    conn.execute(
+                        "update subtopics set primary_ref = %s where id = %s and primary_ref is null",
+                        (top_chunk[sid], sid),
+                    )
             # New coverage: the covered topics' lessons are out of date (shown as "Refresh lesson?").
             conn.execute("select public.mark_lessons_stale(%s)", (source_id,))
             if src["origin"] == "user":
@@ -395,4 +447,10 @@ class IngestHandler:
                 "update sources set status = 'failed', error = %s, step = null, delayed = false where id = %s",
                 (message, source_id),
             )
+            if message == messages.PAYWALLED:
+                # Not the learner's fault: attempts are counted from jobs, so drop this one.
+                conn.execute(
+                    "delete from jobs where kind = 'ingest_source' and payload->>'source_id' = %s", (str(source_id),)
+                )
+            finish_reading(conn, src["goal_id"])
             maybe_start_discovery(conn, src["goal_id"])

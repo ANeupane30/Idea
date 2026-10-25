@@ -107,6 +107,9 @@ def test_clarifying_map_then_answer_matches_waiting_links(db, make_user, make_go
     gid = make_goal(db, uid, title="SQL [clarify]")
     sid = early_source(db, uid, gid, "http://127.0.0.1/article.html")
     run_direct(db, handler(), sid)
+    # A source with structure means no clarifying question (the map follows it); without one the
+    # goal can still clarify, and its waiting links must get matched afterwards.
+    db.execute("update contents set structure = '[]' where content_hash = %s", (source(db, sid)["content_hash"],))
     build_map(db, gid)
     assert goal(db, gid)["map_status"] == "clarifying"
     assert not queued_jobs(db, "ingest_source", "source_id", sid)
@@ -181,3 +184,105 @@ def test_on_map_ready_is_safe_to_call_twice(db, make_user, make_goal):
     with db.transaction():
         on_map_ready(db, UUID(str(gid)))
     assert len(queued_jobs(db, "discover_sources", "goal_id", gid)) == 1
+
+
+# ------------------------------------------------------------ stage 2: reading
+
+
+from worker.goal_ready import finish_reading, is_shallow, sweep_reading_timeouts  # noqa: E402
+
+LONG = "<html><head><title>Long</title></head><body><article>" + "".join(
+    f"<h2>Part {i}</h2><p>" + " ".join(["Joins combine rows from related tables in SQL queries."] * 60) + "</p>"
+    for i in range(1, 6)
+) + "</article></body></html>"
+SHORT = (
+    "<html><head><title>Short</title></head><body><article><h1>One idea</h1><p>"
+    + " ".join(["A join combines rows."] * 40)
+    + "</p></article></body></html>"
+)
+
+
+def reading_goal(db, make_goal, uid, minutes_ago=0):
+    gid = make_goal(db, uid, map_status="reading_sources")
+    db.execute(
+        "update goals set reading_started_at = now() - make_interval(mins => %s) where id = %s", (minutes_ago, gid)
+    )
+    db.execute("delete from jobs where kind = 'topic_map' and payload->>'goal_id' = %s", (str(gid),))
+    return gid
+
+
+def topic_map_jobs(db, gid):
+    return queued_jobs(db, "topic_map", "goal_id", gid)
+
+
+def test_is_shallow():
+    assert is_shallow(1499, 5, 0) is True
+    assert is_shallow(5000, 2, 0) is True
+    assert is_shallow(5000, 3, 0) is False
+    assert is_shallow(100, 1, 3) is False
+
+
+def test_finish_reading_waits_for_sources_in_flight(db, make_user, make_goal):
+    uid = make_user()
+    gid = reading_goal(db, make_goal, uid)
+    early_source(db, uid, gid, "http://127.0.0.1/a.html")
+    with db.transaction():
+        finish_reading(db, gid)
+    assert goal(db, gid)["map_status"] == "reading_sources"
+    assert not topic_map_jobs(db, gid)
+
+
+def test_reading_a_long_source_moves_to_building_map(db, make_user, make_goal):
+    uid = make_user()
+    gid = reading_goal(db, make_goal, uid)
+    sid = early_source(db, uid, gid, "http://127.0.0.1/long.html")
+    run_direct(db, handler(Site(LONG)), sid)
+    assert source(db, sid)["status"] == "awaiting_map"
+    g = goal(db, gid)
+    assert g["map_status"] == "building_map" and g["expand"] is None
+    assert len(topic_map_jobs(db, gid)) == 1
+
+
+def test_one_short_article_asks_to_expand(db, make_user, make_goal):
+    uid = make_user()
+    gid = reading_goal(db, make_goal, uid)
+    sid = early_source(db, uid, gid, "http://127.0.0.1/short.html")
+    run_direct(db, handler(Site(SHORT)), sid)
+    assert goal(db, gid)["map_status"] == "awaiting_expand"
+    assert not topic_map_jobs(db, gid)
+
+
+def test_one_good_and_one_failed_source_builds_the_map(db, make_user, make_goal):
+    uid = make_user()
+    gid = reading_goal(db, make_goal, uid)
+    good = early_source(db, uid, gid, "http://127.0.0.1/long.html")
+    bad = early_source(db, uid, gid, "http://127.0.0.1/bad.html")
+    run_direct(db, handler(Site(LONG)), good)
+    assert goal(db, gid)["map_status"] == "reading_sources"  # the other one is still queued
+    with db.transaction():
+        handler().on_permanent_failure(db, job(bad), "nope")
+    assert goal(db, gid)["map_status"] == "building_map"
+    assert len(topic_map_jobs(db, gid)) == 1
+
+
+def test_all_sources_failed_builds_a_goal_map(db, make_user, make_goal):
+    uid = make_user()
+    gid = reading_goal(db, make_goal, uid)
+    bad = early_source(db, uid, gid, "http://127.0.0.1/bad.html")
+    with db.transaction():
+        handler().on_permanent_failure(db, job(bad), "nope")
+    g = goal(db, gid)
+    assert g["map_status"] == "building_map" and g["expand"] is True
+    assert len(topic_map_jobs(db, gid)) == 1
+
+
+def test_sweep_moves_goals_reading_for_five_minutes(db, make_user, make_goal):
+    uid = make_user()
+    old = reading_goal(db, make_goal, uid, minutes_ago=6)
+    early_source(db, uid, old, "http://127.0.0.1/slow.html")  # still queued
+    fresh = reading_goal(db, make_goal, make_user(), minutes_ago=4)
+    with db.transaction():
+        moved = sweep_reading_timeouts(db)
+    assert moved == 1
+    assert goal(db, old)["map_status"] == "building_map"
+    assert goal(db, fresh)["map_status"] == "reading_sources"

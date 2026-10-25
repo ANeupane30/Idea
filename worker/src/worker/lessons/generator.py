@@ -9,6 +9,8 @@ from collections.abc import Iterator
 from uuid import UUID
 
 import psycopg
+
+from worker.jobs import is_rate_limited
 from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
@@ -172,10 +174,11 @@ class LessonGenerator:
             stream.close()  # bills the partial stream now, not when it is garbage-collected
             self._fail(conn, lesson_id)  # the client went away
             raise
-        except Exception:
+        except Exception as e:
             log.exception("lesson %s failed", lesson_id)
             self._fail(conn, lesson_id)
-            yield _error("failed")
+            # Out of AI quota (often OpenRouter's free daily limit): say so rather than "failed".
+            yield _error("busy" if is_rate_limited(e) else "failed")
             return
 
         # 7. Store it.
