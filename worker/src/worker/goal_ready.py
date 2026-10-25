@@ -124,7 +124,8 @@ def sweep(conn: psycopg.Connection) -> int:
 READING_TIMEOUT = "5 minutes"
 
 
-def _queue(conn: psycopg.Connection, kind: str, goal_id: UUID) -> None:
+def queue_job(conn: psycopg.Connection, kind: str, goal_id: UUID) -> None:
+    """Queue a job for a goal (payload {goal_id})."""
     conn.execute("insert into jobs (kind, payload) values (%s, %s)", (kind, Jsonb({"goal_id": str(goal_id)})))
 
 
@@ -134,7 +135,7 @@ def starting_point_map(conn: psycopg.Connection, goal_id: UUID) -> None:
         "update goals set map_status = 'building_map', map_note = 'starting_point', expand = true where id = %s",
         (goal_id,),
     )
-    _queue(conn, "topic_map", goal_id)
+    queue_job(conn, "topic_map", goal_id)
 
 
 def search_again_or_fall_back(conn: psycopg.Connection, goal_id: UUID) -> None:
@@ -142,7 +143,7 @@ def search_again_or_fall_back(conn: psycopg.Connection, goal_id: UUID) -> None:
     goal = conn.execute("select search_round from goals where id = %s", (goal_id,)).fetchone()
     if goal["search_round"] < 1:
         conn.execute("update goals set search_round = 1, map_status = 'finding_sources' where id = %s", (goal_id,))
-        _queue(conn, "find_sources", goal_id)
+        queue_job(conn, "find_sources", goal_id)
     else:
         starting_point_map(conn, goal_id)
 
@@ -168,7 +169,7 @@ def finish_reading(conn: psycopg.Connection, goal_id: UUID, *, force: bool = Fal
     ).fetchone()["read"]
     if read:
         conn.execute("update goals set map_status = 'checking_sources' where id = %s", (goal_id,))
-        _queue(conn, "check_sources", goal_id)
+        queue_job(conn, "check_sources", goal_id)
         return True
     ask = conn.execute(
         "select source_choice is null and exists (select 1 from sources s where s.goal_id = g.id and s.origin = 'user')"

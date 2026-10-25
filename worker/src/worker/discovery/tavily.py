@@ -84,6 +84,8 @@ def _fetch(query: str, *, api_key: str, url: str, transport) -> list[TavilyHit] 
             TavilyHit(h["url"], h.get("title") or h["url"], float(h.get("score") or 0),
                       (urlsplit(h["url"]).hostname or "").lower() in _VIDEO_HOSTS)
             for h in r.json()["results"]
+            # A PDF link can't be read as a page (the learner uploads PDFs), so it isn't a candidate.
+            if not urlsplit(h["url"]).path.lower().endswith(".pdf")
         ]
     except (ValueError, KeyError, TypeError):
         log.warning("Tavily answered with an unexpected body")

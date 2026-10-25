@@ -136,12 +136,19 @@ def main() -> None:
         threading.Thread(
             target=serve,
             args=(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s),
-            kwargs={"sweep": sweep if i == 0 else None},
             name=f"jobs-{i}",
             daemon=True,
         )
         for i in range(n)
     ]
+    # The timeouts sweep on a thread of its own, so a slow job never holds them up.
+    threads.append(threading.Thread(
+        target=serve,
+        args=(lambda: connect(settings), {}, settings.poll_interval_s),
+        kwargs={"sweep": sweep, "run": lambda conn, handlers: False},
+        name="sweep",
+        daemon=True,
+    ))
     for t in threads:
         t.start()
     for t in threads:

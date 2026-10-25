@@ -57,9 +57,8 @@ def test_request_shape(db):
 
 def test_parses_hits_and_marks_videos(db):
     hits = run(db, Recorder())
-    assert hits[0] == TavilyHit("https://algorithmicbotany.org/papers/abop/abop.pdf", "L-systems: modelling plant growth",
-                                0.91, False)
-    assert [h.is_video for h in hits] == [False, False, True, True]
+    assert hits[0].url == "https://realpython.com/procedural-plants/?utm_source=tavily#intro"  # the PDF is left out
+    assert [h.is_video for h in hits] == [False, True, True]
 
 
 def test_custom_url(db):
@@ -125,7 +124,7 @@ def test_search_many_runs_queries_concurrently_and_counts_each(db):
     t = time.monotonic()
     hits = tavily.search_many(db, ["a", "b", "c"], api_key="k", monthly_credits=1000, transport=rec.transport)
     assert time.monotonic() - t < 0.8
-    assert len(rec.requests) == 3 and len(hits) == 12
+    assert len(rec.requests) == 3 and len(hits) == 9
     assert usage(db) == (3, False)
 
 
@@ -138,3 +137,14 @@ def test_search_many_checks_the_quota_first(db):
 def test_search_many_quota_response_raises(db):
     with pytest.raises(QuotaExhausted):
         tavily.search_many(db, ["a", "b"], api_key="k", monthly_credits=1000, transport=Recorder(status=432, body="{}").transport)
+
+
+def test_pdf_links_are_left_out(db):
+    """Seen on staging: PDF results took candidate slots, then failed ("upload the file instead")."""
+    body = json.dumps({"results": [
+        {"url": "https://a.example/handbook.pdf", "title": "Handbook", "score": 0.9},
+        {"url": "https://b.example/files/Protocol.PDF?dl=1", "title": "Protocol", "score": 0.8},
+        {"url": "https://c.example/guide", "title": "Guide", "score": 0.7},
+    ]})
+    hits = run(db, Recorder(body=body))
+    assert [h.url for h in hits] == ["https://c.example/guide"]

@@ -145,6 +145,8 @@ def _headings(html: str) -> list[Heading]:
             continue
         following = ""
         for sib in el.itersiblings():
+            if not isinstance(sib.tag, str):  # a comment or processing instruction
+                continue
             if sib.tag in ("h1", "h2", "h3"):
                 break
             following = " ".join(sib.text_content().split())
