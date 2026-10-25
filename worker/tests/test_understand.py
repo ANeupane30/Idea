@@ -119,7 +119,7 @@ def test_goal_with_sources_goes_on_to_reading(db, make_user, make_goal):
     assert queued(db, "find_sources", gid) == 0
 
 
-@pytest.mark.xfail(reason="finish_reading moves to checking_sources from Task 6", strict=True)
+
 def test_sources_read_before_understanding_finishes_move_on(db, make_user, make_goal):
     """Review Focus 2: the link was read while the goal was still understanding."""
     from test_goal_ready import early_source, run_direct

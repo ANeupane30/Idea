@@ -185,8 +185,7 @@ class IngestHandler:
                 " title = coalesce(%s, file_name, url_or_file) where id = %s and status = 'processing'",
                 (title, src["id"]),
             )
-            if src["origin"] == "user":
-                finish_reading(conn, src["goal_id"])
+            finish_reading(conn, src["goal_id"])
             return True
 
     def _identify(self, src) -> tuple[str, str, bytes | None]:
@@ -446,6 +445,8 @@ class IngestHandler:
                         "insert into jobs (kind, payload) values ('discover_sources', %s)",
                         (Jsonb({"goal_id": str(src["goal_id"]), "wikipedia_for": str(src["discovered_for"])}),),
                     )
+                # It may have been the last of the goal's sources being read.
+                finish_reading(conn, src["goal_id"])
                 return
             conn.execute(
                 "update sources set status = 'failed', error = %s, step = null, delayed = false where id = %s",

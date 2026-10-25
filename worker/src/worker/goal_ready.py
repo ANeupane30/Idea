@@ -56,74 +56,70 @@ def maybe_start_discovery(conn: psycopg.Connection, goal_id: UUID) -> None:
         _start_discovery(conn, goal_id)
 
 
-# ------------------------------------------------------------ stage 2: reading the learner's sources
+# ------------------------------------------------------------ sources first: once the sources are read
 
-SHALLOW_WORDS = 1500
-SHALLOW_ITEMS = 3
 READING_TIMEOUT = "5 minutes"
-WORDS_PER_TOKEN = 0.75
 
 
-def is_shallow(total_words: int, top_level_items: int, outline_top_items: int) -> bool:
-    """Too little to build a curriculum from. An outline with 3+ items is never shallow."""
-    if outline_top_items >= SHALLOW_ITEMS:
-        return False
-    return total_words < SHALLOW_WORDS or top_level_items < SHALLOW_ITEMS
+def _queue(conn: psycopg.Connection, kind: str, goal_id: UUID) -> None:
+    conn.execute("insert into jobs (kind, payload) values (%s, %s)", (kind, Jsonb({"goal_id": str(goal_id)})))
 
 
-def _top_level(items: list[dict]) -> int:
-    """Items at a source's shallowest level; a lone page title (one H1) counts its sections instead."""
-    if not items:
-        return 0
-    levels = sorted({int(i["level"]) for i in items})
-    first = sum(1 for i in items if int(i["level"]) == levels[0])
-    if first == 1 and len(levels) > 1:
-        return sum(1 for i in items if int(i["level"]) == levels[1])
-    return first
-
-
-def _queue_map(conn: psycopg.Connection, goal_id: UUID) -> None:
+def starting_point_map(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """No usable material: a map from the intent, labelled a starting point on the page."""
     conn.execute(
-        "insert into jobs (kind, payload) values ('topic_map', %s)", (Jsonb({"goal_id": str(goal_id)}),)
+        "update goals set map_status = 'building_map', map_note = 'starting_point', expand = true where id = %s",
+        (goal_id,),
     )
+    _queue(conn, "topic_map", goal_id)
+
+
+def search_again_or_fall_back(conn: psycopg.Connection, goal_id: UUID) -> None:
+    """Too little found material: one more search round with plainer queries, then a starting point."""
+    goal = conn.execute("select search_round, coalesce(search_subject, title) as subject from goals where id = %s",
+                        (goal_id,)).fetchone()
+    if goal["search_round"] < 1:
+        subject = goal["subject"]
+        conn.execute(
+            "update goals set search_round = 1, search_queries = %s, map_status = 'finding_sources' where id = %s",
+            (Jsonb([f"{subject} tutorial", f"{subject} course"]), goal_id),
+        )
+        _queue(conn, "find_sources", goal_id)
+    else:
+        starting_point_map(conn, goal_id)
 
 
 def finish_reading(conn: psycopg.Connection, goal_id: UUID, *, force: bool = False) -> bool:
-    """Once the learner's sources are read (or failed): ask about shallow material, or build the map.
+    """Once a goal's sources are read (or failed): check them before any map.
 
-    Call inside a transaction. With force (the reading timeout), sources still in flight are left
-    behind. Returns whether the goal moved on."""
+    Call inside a transaction. The status is re-read under the goal lock, so of two concurrent calls
+    only one acts. With force (the reading timeout), sources still in flight are left behind.
+    Returns whether the goal moved on."""
     goal = conn.execute("select map_status from goals where id = %s for update", (goal_id,)).fetchone()
     if goal is None or goal["map_status"] != "reading_sources":
         return False
     if not force:
         busy = conn.execute(
-            "select exists (select 1 from sources where goal_id = %s and origin = 'user'"
-            " and status in ('queued', 'processing')) as busy",
+            "select exists (select 1 from sources where goal_id = %s and status in ('queued', 'processing')) as busy",
             (goal_id,),
         ).fetchone()["busy"]
         if busy:
             return False
     read = conn.execute(
-        "select s.type, c.token_count, c.structure from sources s join contents c on c.content_hash = s.content_hash"
-        " where s.goal_id = %s and s.origin = 'user' and s.status = 'awaiting_map'",
-        (goal_id,),
-    ).fetchall()
-    if not read:
-        # Nothing could be read: a map from the goal alone, as if the learner had chosen Expand.
-        conn.execute("update goals set map_status = 'building_map', expand = true where id = %s", (goal_id,))
-        _queue_map(conn, goal_id)
+        "select exists (select 1 from sources where goal_id = %s and status = 'awaiting_map') as read", (goal_id,)
+    ).fetchone()["read"]
+    if read:
+        conn.execute("update goals set map_status = 'checking_sources' where id = %s", (goal_id,))
+        _queue(conn, "check_sources", goal_id)
         return True
-    words = int(sum(r["token_count"] for r in read) * WORDS_PER_TOKEN)
-    top = sum(_top_level(r["structure"] or []) for r in read)
-    outline_top = sum(
-        sum(1 for i in (r["structure"] or []) if int(i["level"]) == 1) for r in read if r["type"] == "outline"
-    )
-    if is_shallow(words, top, outline_top):
-        conn.execute("update goals set map_status = 'awaiting_expand' where id = %s", (goal_id,))
+    has_own = conn.execute(
+        "select exists (select 1 from sources where goal_id = %s and origin = 'user') as own", (goal_id,)
+    ).fetchone()["own"]
+    if has_own:
+        # None of the learner's own sources could be read: they decide what happens next.
+        conn.execute("update goals set map_status = 'awaiting_source_decision' where id = %s", (goal_id,))
     else:
-        conn.execute("update goals set map_status = 'building_map' where id = %s", (goal_id,))
-        _queue_map(conn, goal_id)
+        search_again_or_fall_back(conn, goal_id)
     return True
 
 
