@@ -23,6 +23,7 @@ from worker.ingest import messages
 from worker.ingest.chunking import chunk_segments, clean_text, clean_transcript_text, estimate_tokens
 from worker.ingest.embed import Embedder
 from worker.ingest.embeddings import ensure_subtopic_embeddings
+from worker.ingest.extract_outline import extract_outline
 from worker.ingest.extract_pdf import extract_pdf
 from worker.ingest.extract_web import Renderer, extract_web
 from worker.ingest.extract_youtube import TranscriptSource, extract_youtube
@@ -41,6 +42,7 @@ from worker.ingest.types import Extracted, Segment
 from worker.ingest.urls import content_hash, normalize_url, youtube_video_id
 from worker.jobs import Job, PermanentJobError
 from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult, record_usage
+from worker.structure import build_structure
 
 log = logging.getLogger(__name__)
 
@@ -183,6 +185,8 @@ class IngestHandler:
     def _identify(self, src) -> tuple[str, str, bytes | None]:
         if src["type"] == "web":
             return "web", normalize_url(src["url_or_file"]), None
+        if src["type"] == "outline":
+            return "outline", hashlib.sha256(src["outline_text"].encode()).hexdigest(), None
         if src["type"] == "youtube":
             video_id = youtube_video_id(src["url_or_file"])
             if video_id is None:
@@ -192,6 +196,8 @@ class IngestHandler:
         return "pdf", hashlib.sha256(data).hexdigest(), data
 
     def _extract(self, src, kind: str, key: str, pdf_bytes: bytes | None, limits: Limits) -> Extracted:
+        if kind == "outline":
+            return extract_outline(src["outline_text"])
         if kind == "web":
             return extract_web(
                 src["url_or_file"],
@@ -231,12 +237,14 @@ class IngestHandler:
 
         self._set_step(conn, src["id"], "embedding")
         vectors = self._embedder.embed_passages([c.text for c in chunks])
+        structure = build_structure(extracted.headings, chunks, outline=kind == "outline")
 
         with conn.transaction():
             inserted = conn.execute(
-                "insert into contents (content_hash, type, title, token_count, duration_s, page_count, embed_model)"
-                " values (%s, %s, %s, %s, %s, %s, %s) on conflict do nothing returning content_hash",
-                (chash, kind, extracted.title, tokens, extracted.duration_s, extracted.page_count, self._embedder.model),
+                "insert into contents (content_hash, type, title, token_count, duration_s, page_count, embed_model,"
+                " structure) values (%s, %s, %s, %s, %s, %s, %s, %s) on conflict do nothing returning content_hash",
+                (chash, kind, extracted.title, tokens, extracted.duration_s, extracted.page_count, self._embedder.model,
+                 Jsonb(structure)),
             ).fetchone()
             if inserted is not None:  # another worker may have stored the same content meanwhile
                 with conn.cursor() as cur:

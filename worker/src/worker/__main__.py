@@ -91,7 +91,7 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         embedder=make_embedder(settings),
         storage=SupabaseStorage(settings.supabase_url, settings.supabase_secret_key),
         renderer=PlaywrightRenderer(settings.fetch_allow_private_hosts),
-        transcripts=YouTubeTranscriptSource(),
+        transcripts=YouTubeTranscriptSource(api_key=settings.youtube_api_key),
         allow_private=settings.fetch_allow_private_hosts,
         user_agent=settings.fetch_user_agent,
     )

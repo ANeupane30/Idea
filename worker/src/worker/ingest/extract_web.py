@@ -4,14 +4,16 @@ from typing import Protocol
 from urllib.parse import urljoin
 
 import httpx
+import lxml.html
 import trafilatura
 
 from worker.config import DEFAULT_USER_AGENT
 from worker.ingest import safe_fetch
 from worker.ingest.chunking import clean_text
 from worker.ingest.messages import NO_TEXT
-from worker.ingest.types import Extracted, Segment
+from worker.ingest.types import Extracted, Heading, Segment
 from worker.jobs import PermanentJobError
+from worker.structure import first_sentence
 
 MIN_TEXT_CHARS = 200
 RENDER_TIMEOUT_MS = 20_000
@@ -100,6 +102,32 @@ def _title(html: str) -> str | None:
     return meta.title if meta and meta.title else None
 
 
+# Section headings that are never topics.
+_BOILERPLATE = {"contents", "references", "see also", "external links", "further reading", "notes", "navigation menu"}
+
+
+def _headings(html: str) -> list[Heading]:
+    """H1-H3 in document order, each with the first sentence of the text that follows it."""
+    try:
+        root = lxml.html.fromstring(html)
+    except (ValueError, lxml.etree.ParserError):
+        return []
+    out: list[Heading] = []
+    for el in root.iter("h1", "h2", "h3"):
+        title = " ".join(el.text_content().split())
+        if not title or title.casefold().rstrip(":") in _BOILERPLATE:
+            continue
+        following = ""
+        for sib in el.itersiblings():
+            if sib.tag in ("h1", "h2", "h3"):
+                break
+            following = " ".join(sib.text_content().split())
+            if following:
+                break
+        out.append(Heading(title, int(el.tag[1]), first_sentence(following)))
+    return out
+
+
 def extract_web(
     url: str,
     *,
@@ -119,4 +147,4 @@ def extract_web(
     # trafilatura's text output puts one paragraph per line.
     paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
     segments = [Segment(p, {"anchor": " ".join(p.split()[:ANCHOR_WORDS])}) for p in paragraphs]
-    return Extracted(title=_title(html), segments=segments)
+    return Extracted(title=_title(html), segments=segments, headings=_headings(html))

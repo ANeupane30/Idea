@@ -5,8 +5,9 @@ import queue as queue_module
 from collections.abc import Callable
 
 from worker.ingest.messages import BAD_PDF, ENCRYPTED, SCANNED, TOO_MANY_PAGES
-from worker.ingest.types import Extracted, Segment
+from worker.ingest.types import Extracted, Heading, Segment
 from worker.jobs import PermanentJobError
+from worker.structure import first_sentence
 
 MAX_BYTES = 25 * 1024 * 1024
 TIMEOUT_S = 60.0
@@ -14,7 +15,7 @@ MIN_CHARS_PER_PAGE = 20
 
 
 def _parse_in_child(data: bytes, max_pages: int, out) -> None:
-    """Child process: puts ("ok", title, page_texts, page_count) or ("err", reason) on `out`."""
+    """Child process: puts ("ok", title, page_texts, page_count, toc) or ("err", reason) on `out`."""
     try:
         import pymupdf
 
@@ -27,7 +28,8 @@ def _parse_in_child(data: bytes, max_pages: int, out) -> None:
             return
         texts = [page.get_text() for page in doc]
         title = (doc.metadata or {}).get("title") or None
-        out.put(("ok", title, texts, doc.page_count))
+        toc = [(level, str(t), int(page)) for level, t, page, *_ in doc.get_toc()]
+        out.put(("ok", title, texts, doc.page_count, toc))
     except Exception:
         out.put(("err", "bad"))
 
@@ -63,8 +65,15 @@ def extract_pdf(
             raise PermanentJobError(TOO_MANY_PAGES.format(n=max_pages))
         raise PermanentJobError(BAD_PDF)
 
-    _, title, texts, page_count = result
+    _, title, texts, page_count, *rest = result
+    toc = rest[0] if rest else []
     if page_count == 0 or sum(len(t.strip()) for t in texts) / page_count < MIN_CHARS_PER_PAGE:
         raise PermanentJobError(SCANNED)
     segments = [Segment(t, {"page": i + 1}) for i, t in enumerate(texts) if t.strip()]
-    return Extracted(title=title, segments=segments, page_count=page_count)
+    # Chapters and sections (TOC levels 1-2), each with the first sentence of its page.
+    headings = [
+        Heading(t.strip(), level, first_sentence(texts[page - 1]) if 1 <= page <= len(texts) else "")
+        for level, t, page in toc
+        if level <= 2 and t.strip()
+    ]
+    return Extracted(title=title, segments=segments, page_count=page_count, headings=headings)
