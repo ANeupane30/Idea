@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 import httpx2 as httpx
 import psycopg
 
+from worker import timing
+from worker.timing import Stopwatch
+
 log = logging.getLogger(__name__)
 
 TAVILY_URL = "https://api.tavily.com/search"
@@ -116,8 +119,9 @@ def search_each(
     """Several searches at once, results per query (empty where one failed)."""
     if _used(conn) >= monthly_credits:
         raise QuotaExhausted("monthly Tavily credits used up")
-    with ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
+    with Stopwatch() as sw, ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
         results = list(pool.map(lambda q: _fetch(q, api_key=api_key, url=url, transport=transport), queries))
+    timing.mark("tavily", queries=len(queries), secs=sw.secs)
     for found in results:
         if found is not None:
             _count(conn, monthly_credits)

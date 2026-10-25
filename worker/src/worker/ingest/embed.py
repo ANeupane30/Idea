@@ -7,7 +7,9 @@ import re
 import threading
 from typing import Protocol
 
+from worker import timing
 from worker.config import Settings
+from worker.timing import Stopwatch
 
 DIMS = 384
 CGROUP_CPU_MAX = "/sys/fs/cgroup/cpu.max"
@@ -64,8 +66,15 @@ class FastEmbedder:
 
     def embed_passages(self, texts: list[str]) -> list[list[float]]:
         model = self._get()
-        with self._run_lock:
-            return [[float(x) for x in v] for v in model.passage_embed(texts)]
+        with Stopwatch() as waited:
+            self._run_lock.acquire()
+        try:
+            with Stopwatch() as sw:
+                out = [[float(x) for x in v] for v in model.passage_embed(texts)]
+        finally:
+            self._run_lock.release()
+        timing.mark("embed", texts=len(texts), secs=sw.secs, waited=waited.secs)
+        return out
 
     def embed_queries(self, texts: list[str]) -> list[list[float]]:
         model = self._get()

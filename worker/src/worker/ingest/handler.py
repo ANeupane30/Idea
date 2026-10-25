@@ -17,6 +17,7 @@ import psycopg
 from psycopg import errors as pg_errors
 from psycopg.types.json import Jsonb
 
+from worker import timing
 from worker.config import DEFAULT_USER_AGENT
 from worker.goal_ready import finish_matching, finish_reading
 from worker.prep.vet import is_vetted, load_for_check, vet
@@ -108,6 +109,7 @@ class IngestHandler:
         )
 
     def _set_step(self, conn: psycopg.Connection, source_id: UUID, step: str) -> None:
+        timing.mark("step", step=step)
         with conn.transaction():
             conn.execute(
                 "update sources set step = %s where id = %s and status = 'processing'", (step, source_id)

@@ -13,6 +13,9 @@ from uuid import UUID
 import anthropic
 import openai
 import psycopg
+
+from worker import timing
+from worker.timing import Stopwatch
 from pydantic import ValidationError
 
 from worker.config import Settings
@@ -108,14 +111,17 @@ class AnthropicLLM:
         # Beta endpoint: the only one that accepts server-side refusal fallbacks.
         # Thinking is left at the model default (adaptive); never pass it.
         try:
-            response = self._client.beta.messages.parse(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-                output_format=schema,
-                **_MODEL_OPTIONS.get(model, {}),
-            )
+            with Stopwatch() as sw:
+                response = self._client.beta.messages.parse(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                    output_format=schema,
+                    **_MODEL_OPTIONS.get(model, {}),
+                )
+            timing.mark("llm", schema=schema.__name__, model=response.model, secs=sw.secs,
+                        tokens=f"{response.usage.input_tokens}/{response.usage.output_tokens}")
         except _PERMANENT_API_ERRORS as e:
             # Retrying the same request cannot fix these; keep the detail in the log only.
             log.exception("Anthropic request rejected (%s)", type(e).__name__)
@@ -231,24 +237,26 @@ class OpenRouterLLM:
         route = self._route(model)
         json_schema = schema.model_json_schema()
         try:
-            response = self._client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": system + _JSON_INSTRUCTION + json.dumps(json_schema)},
-                    {"role": "user", "content": user},
-                ],
-                max_tokens=max_tokens,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {"name": schema.__name__, "schema": json_schema},
-                },
-                **route,
-            )
+            with Stopwatch() as sw:
+                response = self._client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": system + _JSON_INSTRUCTION + json.dumps(json_schema)},
+                        {"role": "user", "content": user},
+                    ],
+                    max_tokens=max_tokens,
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {"name": schema.__name__, "schema": json_schema},
+                    },
+                    **route,
+                )
         except _OPENROUTER_PERMANENT_ERRORS as e:
             log.exception("OpenRouter request rejected (%s)", type(e).__name__)
             raise LLMRefusal(REFUSAL_MESSAGE, model=route["model"]) from e
         served = self._served(model, response.model)
         usage = response.usage
         tokens = (usage.prompt_tokens or 0, usage.completion_tokens or 0) if usage else (0, 0)
+        timing.mark("llm", schema=schema.__name__, model=served, secs=sw.secs, tokens=f"{tokens[0]}/{tokens[1]}")
         if not response.choices:
             # OpenRouter can return 200 with an upstream error instead of choices: retry the job.
             raise LLMOutputError("no choices in the response", *tokens, served)

@@ -14,6 +14,8 @@ import anthropic
 import openai
 import psycopg
 
+from worker import timing
+
 log = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 4
@@ -170,11 +172,14 @@ def run_once(conn: psycopg.Connection, handlers: dict[str, Handler]) -> bool:
         # crashed on it repeatedly. Do not run it again.
         _fail_permanently(conn, job, "worker crashed repeatedly", GENERIC_MESSAGE, handler)
         return True
+    timing.job_started(job.kind, job.payload.get("goal_id") or job.payload.get("source_id") or job.id)
     try:
         handler.run(conn, job)
     except Exception as e:
         log.warning("job %s (%s) failed on attempt %d: %r", job.id, job.kind, job.attempts, e)
+        timing.mark("failed")
         fail(conn, job, e, handler)
     else:
+        timing.mark("done")
         complete(conn, job)
     return True
