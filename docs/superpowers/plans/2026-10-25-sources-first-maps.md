@@ -114,7 +114,7 @@ Most likely problems first:
   - **`goals_prepare` (before insert):** when `current_user = 'authenticated'` (the app) and `map_status = 'pending'`, it sets `map_status = 'understanding'` and `prep_started_at = now()`.
   - **`enqueue_topic_map` (after insert):** queues `understand_goal {goal_id}` when the new goal is `understanding`, and `topic_map` when it's `pending`.
   - **What stays `pending`:** goals inserted by `postgres` (the worker and tests), which keep today's goal-only path.
-- **With sources,** `reading_started_at` is still set by the RPC. The RPC's insert runs as `authenticated` through security definer? No: security definer runs as the owner, `postgres`. So the RPC sets `map_status = 'understanding'` and `prep_started_at` explicitly in its insert, and the after-insert trigger queues the job.
+- **The RPC sets the status itself.** It is `security definer`, so its insert runs as `postgres` and `goals_prepare` doesn't fire. It therefore sets `map_status = 'understanding'`, `prep_started_at = now()` and, with sources, `reading_started_at` in its own insert. The after-insert trigger then queues `understand_goal`.
 - **`answer_source_decision(p_goal_id uuid, p_choice text) returns void`:**
   - **Who and when:** the owner only, and only while the goal is `awaiting_source_decision`, otherwise `goal_not_awaiting_decision`.
   - **`find`:** sets `finding_sources` and queues `find_sources`.
