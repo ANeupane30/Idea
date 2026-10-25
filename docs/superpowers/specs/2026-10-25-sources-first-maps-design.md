@@ -1,110 +1,212 @@
 # Sources-First Maps: Design
 
-**Status:** direction approved in conversation on 2026-10-25 ("Sources first", search with Tavily). This written spec awaits review.
-**Amends:** [2026-10-24-source-aware-onboarding-design.md](2026-10-24-source-aware-onboarding-design.md). A goal without the learner's own sources no longer builds its map from the goal alone. It finds learning material first and builds the map from that. Wikipedia becomes a fallback.
+**Status:** direction approved on 2026-10-25 ("Sources first", search with Tavily). Revised the same day with the user's four changes (summarised below). This written spec awaits review.
+**Amends:** [2026-10-24-source-aware-onboarding-design.md](2026-10-24-source-aware-onboarding-design.md). Every map is now built from **vetted** sources. It isn't shown until those sources are read and matched. Wikipedia is only a fallback.
+
+**The four changes from the first draft:**
+1. **The map stays hidden** until its sources are read and matched, so it's ready for lessons when it appears.
+2. **No "Try searching for" chips.** The system searches for sources that fit what the learner is trying to do.
+3. **Every source is checked** for being on topic, credible and substantial before the map is designed.
+4. **When the learner's own sources fail that check,** they're told first and choose what happens, before any automatic search.
 
 ## 1. Why
 
 On staging, the goal "I would like to learn about simulating a growing plant from seed to big." went wrong in five ways:
-- **The map misread the goal.** It came out as a botany course, when the goal is about simulation and modelling. Nothing checked the map against real material.
-- **The automatic sources were all off-topic** (Nutria, Astroturfing, BYD Auto). Discovery searched Wikipedia with the whole sentence.
-- **Wikipedia is reference material, not learning material.**
-- **Every lesson asked for a source,** because no source covered any topic.
-- **Sources took minutes to read,** partly because the worker re-downloaded its embedding model.
+- **The map misread the goal.** It came out as a botany course; the goal is about simulation and modelling.
+- **The automatic sources were all off-topic** (Nutria, Astroturfing, BYD Auto).
+- **Wikipedia isn't learning material.**
+- **Every lesson asked for a source.**
+- **Sources took minutes to read.**
 
-**Goal:** a learner who gives no sources gets a map built from real learning material, such as tutorials, courses, documentation and videos, that matches what they asked for. Every topic on that map starts with at least one source, so its lesson works.
+**The cause:** the map was the AI's guess from the goal text. Sources were looked for afterwards, then never checked.
 
-## 2. Flow for a goal without the learner's own sources
+**Goal:**
+- **A map built from vetted material:** every map comes from sources that are on topic for what the learner wants, credible, and substantial.
+- **Ready when shown:** the map is shown only once those sources are read and matched, so every topic on it has a working lesson.
+- **The learner decides about their own material:** if the learner's own material doesn't pass the check, they're told why, and they choose what happens next.
 
-The flow with the learner's own sources (links or outline) is unchanged.
+## 2. Terms
+
+- **Intent:** what the learner is really trying to do. It's written down by one AI call from the goal, level and style.
+  - Example: "build a simple computer simulation of a plant growing from a seed (procedural or L-system modelling), beginner level".
+  - It's stored as `goals.intent`, together with a short `goals.search_subject` such as "plant growth simulation".
+- **Vetted:** a source the **source check** (§5) accepted. Only vetted sources shape a map or a lesson.
+
+## 3. Flow
 
 ```
-pending ──► finding_sources ──► reading_sources ──► building_map ──► ready ──► (discovery for gaps)
-                 │ no key / no results / search failed
-                 └──────────────────────────────► building_map (goal only, as today) ──► ready ──► (discovery)
+                     ┌───────────── learner gave sources ─────────────┐
+                     ▼                                                 │
+pending ─► understanding ─► reading_sources ─► checking_sources ─┬─ all pass ─────────► building_map
+             (intent)        (the learner's)                     ├─ some/all fail ─► awaiting_source_decision
+                     │                                           │                     ├ "Find sources for me" ─► finding_sources
+                     │                                           │                     └ "Use mine anyway" ─────► building_map
+                     └─ no sources ─► finding_sources ─► reading_sources ─► checking_sources ─► building_map
+                                                                                                       │
+building_map ─► matching_sources ─► ready  (the map is shown only here)                               ◄┘
 ```
 
-1. **New goals.** `create_goal_with_sources` with no links and no outline creates the goal in a new status, **`finding_sources`**, and queues a new job, **`find_sources`**, instead of `topic_map`.
-2. **The search plan: one AI call, fast tier.**
-   - **Input:** the goal, the level and the learning style.
-   - **Output:**
-     - `subject`: a short search subject, for example "plant growth simulation".
-     - `queries`: 2–3 web search queries for learning material that suits the learner's style. Tutorials and guides for Reading; worked examples and projects for Hands-On; video lessons plus tutorials for Visual / Video.
-   - **Storage:** `subject` goes in **`goals.search_subject`**. Discovery and the web's "Try searching for" chips both use it, replacing today's raw goal title.
-3. **Search.**
-   - **Request:** each query goes to Tavily with `search_depth=basic`, `max_results=8`, and an `exclude_domains` list of low-value sites (`pinterest.com`, `facebook.com`, `instagram.com`, `tiktok.com`, `x.com`, `twitter.com`, `quora.com`, `amazon.com`).
-   - **Merge:** results are de-duplicated by normalised URL, with at most 1 per domain except `youtube.com` (at most 2), and ranked by Tavily score.
-4. **Pick.**
-   - **What gets picked:** the top **4** results. For Visual / Video learners, that's the top 3 non-video results plus up to **2** YouTube videos.
-   - **What happens to them:** they're inserted as sources with `origin = 'auto'`, which skips the learner's limits, and **`found_for_goal = true`**.
-   - **Status:** the goal moves to `reading_sources`, with `reading_started_at = now()`.
-5. **Read.**
-   - **The pipeline:** the existing reading pipeline runs, including the safe fetcher, paywall detection and structure extraction.
-   - **What counts:** `finish_reading` and the map step now count every non-failed source of a goal in `reading_sources`, whether `user` or found-for-goal.
-   - **No shallow question for found sources.** The learner didn't choose them, so the map always uses the **Expand** rule: it's designed from the goal, using the sources' structure and content.
-   - **New prompt rule:** keep the topics to what the sources cover.
-6. **Map.** As in stage 2. On `ready`, the found sources are matched like any waiting source.
-7. **Gaps.**
-   - **When:** after matching, `discover_sources` runs for uncovered topics, as today.
-   - **How it searches:** **Tavily**, one query per uncovered topic: `"<topic> <subject>"`, with the style's word ("tutorial" or "video lesson"). It falls back to Wikipedia only when there's no Tavily key.
-   - **Caps** are unchanged: 4 web pages and 2 videos per goal in total, counting the found sources.
-8. **Fallback.** With no `TAVILY_API_KEY`, a failed search, or no usable results, the goal goes straight to `building_map`. The map is built from the goal alone, and discovery runs afterwards. That's today's behaviour, but with `search_subject` in the queries.
+**Statuses** (`goals.map_status`):
 
-**Off-topic automatic sources** (relevance below 0.40) are removed after matching, so the learner never sees them. This was already decided in PR #20.
+| Status | What's happening | What the learner sees |
+|---|---|---|
+| `understanding` | The intent call | "Understanding your goal…" |
+| `finding_sources` | Tavily search, then picking candidates | "Finding learning material for your goal…" |
+| `reading_sources` | Fetch, extract and embed | "Reading your sources…", with each source's progress |
+| `checking_sources` | The source check | "Checking your sources…" |
+| `awaiting_source_decision` | The learner's own sources failed | §6 |
+| `building_map` | The map call | "Designing your map…" |
+| `matching_sources` | Vetted sources matched to the topics | "Preparing your lessons…" |
+| `ready` | Done | The map |
 
-## 3. What the learner sees
+The existing `clarifying` and `failed` stay.
 
-- **"Finding learning material for your goal…"** while the goal is `finding_sources`. It's then followed by the existing "Reading your sources…" view, which lists the found sources with their progress.
-- **On the map,** the found sources sit in the source list like any other.
-- **A lesson whose topic has no source yet,** while the goal still has sources being read or discovery running, says **"Sources for this topic are still being read. This takes a minute or two."** It refreshes when they're ready. It no longer says "None of your sources cover this topic yet."
-- **"Try searching for" chips** use `search_subject`, for example "Seed structure plant growth simulation", instead of the raw sentence.
+**Shallow material** (from stage 2): the "Expand?" question is replaced by the source decision (§6). For a vetted but shallow user source, the map is built from it plus found sources.
 
-## 4. Limits and cost
+## 4. Finding sources (no sources from the learner, or the learner chose "Find sources for me")
 
-- **Tavily:** the free tier gives 1,000 credits a month, and a basic search costs 1 credit. A new goal uses 2–3 credits for the search plan, plus up to 4 for gaps. That's about 7 at most, so roughly **140 new goals a month** on the free tier.
-  - **Budget guard:** if Tavily reports the quota exhausted (HTTP 432 or 429), the goal falls back as in §2.8.
-- **OpenRouter:** one more AI call per goal, the search plan. It's covered by the existing quota floor.
-- **The learner's limits:** found and discovered sources never count toward them.
+1. **Queries:**
+   - **From the intent:** the intent call returns 2–3 Tavily queries aimed at learning material that fits the learner's style:
+     - **Reading:** tutorials, guides, course notes and documentation.
+     - **Hands-On:** worked examples and projects.
+     - **Visual / Video:** video lessons, plus tutorials.
+   - **Never the raw goal:** queries are built from the intent, not the raw goal sentence.
+2. **Tavily request:**
+   - Each query uses `search_depth=basic` and `max_results=8`.
+   - **Excluded domains:** `pinterest.com`, `facebook.com`, `instagram.com`, `tiktok.com`, `x.com`, `twitter.com`, `quora.com`, `amazon.com`, `medium.com/tag`.
+3. **Candidates:**
+   - Results are de-duplicated by normalised URL, with at most 1 per domain except YouTube (at most 2), and ranked by Tavily score.
+   - The top **8** become candidates. For Visual / Video learners, up to 3 of them may be videos.
+   - They're inserted as sources with `origin = 'auto'` and `found_for_goal = true`, and then read.
+4. **Picking for the map:**
+   - After the check, the **best 4 vetted** candidates, including up to 2 videos for Visual / Video, build the map.
+   - Every other candidate is deleted, so the learner sees only the sources the map uses.
+5. **Too few:** if fewer than **2** candidates pass, one more round of queries runs from the intent, with different wording. If that still gives fewer than 2, the goal falls back (§8).
 
-## 5. Speed
+## 5. The source check
 
-- **Embedding model:** the fastembed model (`BAAI/bge-small-en-v1.5`) is downloaded into the worker image at build time, with `FASTEMBED_CACHE_PATH` set. The worker no longer downloads it at run time.
-- **Embedder lifetime:** one embedder instance per worker process, reused by every job.
+**When:** once a goal's sources are read, before any map. **One AI call, fast tier, for all of the goal's sources together.**
 
-## 6. Safety
+**Input per source:**
+- Its title, URL or domain, and type.
+- Its headings (the structure).
+- About its first 1,500 characters of text.
 
-- **Search results are untrusted URLs.** They're fetched only through the existing safe fetcher (private addresses are blocked, with size and time limits). They also go through paywall detection, and the per-goal caps apply.
-- **The goal is untrusted input** to the search-plan prompt. It's delimited as data, and the response is structured and validated: `subject` is 1–80 characters, there are 1–3 queries, and each is 1–120 characters.
-- **Secrets:** `TAVILY_API_KEY` is a Fly secret, and is never logged or sent anywhere except Tavily.
+All of it is delimited as untrusted data.
 
-## 7. Validating the map
+**Output per source:**
+- `on_topic` (true / false): does it teach what the intent describes? Matching words aren't enough; it has to teach that.
+- `credible` (true / false):
+  - **Credible:** an educational, official, academic or established publisher, or a reputable author or channel.
+  - **Not credible:** spam, SEO filler, shopping or landing pages, forums with no substance, or content farms.
+- `substantial` (true / false): does it explain or teach something, rather than being a stub, an index, a sign-in page or a teaser?
+- `reason`: one plain sentence for the learner (at most 160 characters).
 
-- **Grounded by design:** the map is built from the found sources' structure and content, with the "keep to what the sources cover" rule.
-- **Measured after matching:** the share of top-level topics with coverage of at least 0.40 is logged per goal (`map coverage: 7/9 topics`). It's the signal for tuning queries and prompts. Uncovered topics get gap discovery.
+**Rules:**
+- **Vetted** means all three are true.
+- **Results are stored** on the source as `sources.vetted` (boolean) and `sources.vet_reason`.
+- **Unvetted found sources** are deleted, and the next candidates are used.
+- **Unvetted user sources** are never deleted. They lead to the learner's decision (§6).
+- **If the check call fails** after retries, sources fall back to the existing relevance rule after matching. The fallback is logged.
 
-## 8. Testing
+## 6. When the learner's own sources don't pass
+
+The goal waits in `awaiting_source_decision`. The page shows:
+
+> **Some of your sources don't look right for this goal.**
+> - *(each failing source)* **Title**: *reason* (for example "This page is a course sign-up page, not course content.")
+>
+> [**Find sources for me**] [**Use mine anyway**]
+
+- **"Find sources for me":**
+  - The failing sources are kept in the learner's list, marked "Not used" with the reason, and they aren't used for the map or lessons.
+  - Finding sources (§4) runs, and the map is built from the learner's vetted sources plus the vetted found ones.
+- **"Use mine anyway":** the map is built from all of the learner's sources that were read, vetted or not.
+- **When none of the learner's sources could be read** (failed fetch, paywall): the same screen, listing those failures.
+- **When every source passes:** no screen. The map is built straight away.
+
+## 7. Building the map and preparing lessons
+
+- **Map prompt:**
+  - **Input:** the vetted sources' structure summary, plus the intent, level and style. The raw goal sentence isn't used.
+  - **Rules:**
+    - With the learner's own vetted sources only, the stage 2 **Follow** rule applies: keep their structure.
+    - Otherwise, the **Expand** rule applies: design the map for the intent from the sources' structure and content.
+  - **Keep to the material:** both rules add **"Every topic must be taught by at least one of the sources."**
+- **Matching before showing:**
+  - The map's topics are saved, and the goal moves to **`matching_sources`**. Every vetted source is matched.
+  - The goal becomes `ready` only once matching is done. That's when the map first appears.
+- **Topics left uncovered:**
+  - **Gap search:** one Tavily search per uncovered topic, in the form `"<topic> <search_subject>"` plus the style's word. Each candidate is read and checked.
+  - **Rule:** a candidate that passes and matches is added. This runs before `ready`, capped at 4 extra sources, and only up to the 5-minute reading limit.
+  - **Still uncovered:** the topic keeps its Gap chip, and its lesson says "We couldn't find good material for this topic yet. Add a source if you have one." **No search chips.**
+- **Lessons:** they stay grounded: they use only vetted sources, or every read source if the learner chose "Use mine anyway". Nothing is written from the AI's general knowledge.
+- **Map coverage:** the share of topics covered is logged per goal (`map coverage: 7/9 topics`).
+
+## 8. Fallback
+
+**When:** there's no `TAVILY_API_KEY`, Tavily fails or reports its quota exhausted (HTTP 429 or 432), or too few sources pass (§4.5).
+
+**What happens:**
+1. Wikipedia search using `search_subject`, read and checked the same way.
+2. If that also gives no vetted sources, a map from the intent alone. It's shown only after the gap search, and a notice on the goal page says **"We couldn't find good learning material for this goal, so this map is a starting point. Add your own sources to improve it."**
+
+## 9. What changes for the learner
+
+- **No map until it's ready.** While the goal is being prepared, the goal page shows the current stage (§3), with each source's progress.
+- **The "Try searching for" chips are removed** from lessons and the map's suggestions.
+- **The source list shows:**
+  - Found sources like any other.
+  - The learner's unvetted sources marked "Not used", with the reason.
+- **Later additions:** a source the learner adds after `ready` (the Add source dialog) is checked too. If it fails, it's listed as "Not used" with the reason, and the learner can choose **Use it anyway**.
+
+## 10. Limits, cost and speed
+
+- **Tavily** (free tier, 1,000 credits a month; a basic search costs 1):
+  - **Per new goal:** 2–3 credits, plus up to 3 for a retry round, plus up to 4 for gaps. That's about 10 at most, so roughly **100 new goals a month** on the free tier.
+- **OpenRouter:** per goal, 1 intent call, 1–2 check calls and the map call, plus matching. All of it is covered by the existing quota floor.
+- **The learner's limits:** found sources never count toward them.
+- **Speed:**
+  - **Embedding model:** the fastembed model is built into the worker image (`FASTEMBED_CACHE_PATH`), with one embedder per process.
+  - **Time limit:** reading still has its 5-minute cap.
+  - **Expected time to a ready map:** about 2–4 minutes on free models, with progress shown throughout.
+
+## 11. Safety
+
+- **Search results are untrusted URLs:**
+  - They're fetched only through the safe fetcher (private addresses blocked, size and time limits) and checked for paywalls.
+  - Every page's text is untrusted input to the check and map prompts. It's delimited as data, and the responses are structured and validated.
+- **The intent call takes the goal as untrusted data.** Its output is validated: intent 1–300 characters, subject 1–80, 1–3 queries of 1–120 characters each.
+- **Secrets:** `TAVILY_API_KEY` is a Fly secret. It's sent only to Tavily and never logged.
+
+## 12. Testing
 
 - **Worker (pytest, fake AI, recorded Tavily responses):**
-  - The search plan's prompt and validation.
-  - Tavily request parameters.
-  - De-duplication, domain caps, picking and the video split.
-  - `find_sources` → `reading_sources`, and the fallback on no key, an error, no results or quota.
-  - `finish_reading` counting found sources and always using Expand.
-  - Gap discovery through Tavily.
-  - Off-topic removal.
-  - The single shared embedder.
-- **Database (pgTAP):** `finding_sources`, `found_for_goal`, `search_subject`, and the RPC creating `finding_sources` goals.
-- **Browser (Playwright):**
-  - The fixture server gets a fake Tavily endpoint.
-  - **"Pick for me"** shows "Finding learning material…", then "Reading your sources…". It ends with a map whose topics come from the fixture sources, and whose first lesson has content.
-  - **A lesson opened while sources are still being read** shows the new message, not the "add a source" one.
-- **Live check on staging:**
-  - The plant-simulation goal gives a map about simulation and modelling, with on-topic sources and working lessons.
-  - One reading goal and one video goal.
+  - The intent prompt and validation.
+  - The Tavily request.
+  - Candidate de-duplication and caps.
+  - Check verdicts:
+    - Vetted versus unvetted.
+    - Unvetted found sources replaced.
+    - Unvetted user sources leading to `awaiting_source_decision`.
+  - Both decisions.
+  - Matching before `ready`, and gap search before `ready`.
+  - The fallback paths: no key, quota, too few sources.
+  - The shared embedder.
+- **Database (pgTAP):**
+  - The new statuses and columns (`intent`, `search_subject`, `vetted`, `vet_reason`, `found_for_goal`).
+  - An `answer_source_decision(goal, choice)` RPC: owner only, and only from `awaiting_source_decision`.
+- **Browser (Playwright, fixture site with a fake Tavily endpoint):**
+  - **"Pick for me"** goes through the stage messages, and the map appears with a source on every topic. Its first lesson has content.
+  - **A sign-in-wall link given by the learner** shows the decision screen.
+    - "Find sources for me" ends in a ready map.
+    - "Use mine anyway" ends in a ready map.
+  - **No "Try searching for" chips** anywhere.
+- **Live check on staging:** the plant-simulation goal gives a map about simulation and modelling, with credible on-topic sources and working lessons. Also one reading goal and one video goal.
 
-## 9. Out of scope
+## 13. Out of scope
 
-- Tavily's `raw_content`: pages are fetched by our own pipeline.
-- Re-ranking sources with the AI.
-- Building maps from more than 4–5 sources.
+- Tavily `raw_content`.
+- Re-ranking with paid models.
+- Scoring credibility beyond the AI check, such as domain reputation lists.
 - Languages other than English.
