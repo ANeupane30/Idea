@@ -1,6 +1,6 @@
 # Sources-First Maps: Design
 
-**Status:** direction approved on 2026-10-25 ("Sources first", search with Tavily). Revised the same day with the user's four changes (summarised below). This written spec awaits review.
+**Status:** direction approved on 2026-10-25 ("Sources first", search with Tavily). Revised twice the same day: first with the user's four changes (summarised below), then with their review on latency, the gap-search time budget, batching the source check, and tracking the Tavily quota. This written spec awaits review.
 **Amends:** [2026-10-24-source-aware-onboarding-design.md](2026-10-24-source-aware-onboarding-design.md). Every map is now built from **vetted** sources. It isn't shown until those sources are read and matched. Wikipedia is only a fallback.
 
 **The four changes from the first draft:**
@@ -61,6 +61,16 @@ building_map ─► matching_sources ─► ready  (the map is shown only here) 
 
 The existing `clarifying` and `failed` stay.
 
+**Progress is detailed and survives a refresh:**
+- **Detailed:** each stage shows counts and names, not just a label:
+  - "Finding learning material… 8 candidates found".
+  - "Reading 2 of 4 sources: realpython.com…".
+  - "Checking 4 sources…".
+  - "Preparing lessons: 6 of 9 topics ready".
+- **Where the counts come from:** the page works them out from the goal's status and its sources' statuses and steps.
+- **Shown beside the counts:** each source's own stepper, as today.
+- **Every stage runs in background jobs,** and its state lives in the database (`goals.map_status`, the sources' status and step). The page polls every 2 s. A refresh, a closed tab or another device picks up the same stage, and nothing restarts.
+
 **Shallow material** (from stage 2): the "Expand?" question is replaced by the source decision (§6). For a vetted but shallow user source, the map is built from it plus found sources.
 
 ## 4. Finding sources (no sources from the learner, or the learner chose "Find sources for me")
@@ -85,7 +95,14 @@ The existing `clarifying` and `failed` stay.
 
 ## 5. The source check
 
-**When:** once a goal's sources are read, before any map. **One AI call, fast tier, for all of the goal's sources together.**
+**When:** once a goal's sources are read, before any map.
+
+**How:** **fast-tier AI calls in batches of up to 4 sources**, so 8 candidates take 2 calls. The batches run in parallel.
+
+**Structured output is enforced:**
+- The schema is a JSON array with exactly one verdict per source `id` (OpenRouter `response_format: json_schema`), validated with pydantic.
+- **A missing or duplicated id, or a missing field:** that batch is asked again once, for just those ids.
+- **Still invalid:** the source counts as **not vetted** if it was found, and falls back to the relevance rule if it's the learner's own.
 
 **Input per source:**
 - Its title, URL or domain, and type.
@@ -136,16 +153,24 @@ The goal waits in `awaiting_source_decision`. The page shows:
 - **Matching before showing:**
   - The map's topics are saved, and the goal moves to **`matching_sources`**. Every vetted source is matched.
   - The goal becomes `ready` only once matching is done. That's when the map first appears.
-- **Topics left uncovered:**
-  - **Gap search:** one Tavily search per uncovered topic, in the form `"<topic> <search_subject>"` plus the style's word. Each candidate is read and checked.
-  - **Rule:** a candidate that passes and matches is added. This runs before `ready`, capped at 4 extra sources, and only up to the 5-minute reading limit.
+- **Topics left uncovered: gap search, with a strict time budget.**
+  - **The searches:** one Tavily search per uncovered top-level topic, in the form `"<topic> <search_subject>"` plus the style's word. They run **concurrently**, each with a 10 s timeout.
+  - **How many:**
+    - Up to **4** gap queries if at least 60 s remain of the goal's 5-minute preparation budget.
+    - At most **2** if less remains.
+    - None if under 20 s remains.
+  - **Reading them:** the best candidate per topic is read and checked by **parallel ingest workers** (§10).
+  - **The whole gap phase has a hard cap of 45 s:** the goal becomes `ready` when it ends, with whatever passed and matched by then.
+  - **Candidates still in flight** carry on in the background. If they pass and match, they're added to the map's coverage, and the topic's Gap chip updates on the next poll.
   - **Still uncovered:** the topic keeps its Gap chip, and its lesson says "We couldn't find good material for this topic yet. Add a source if you have one." **No search chips.**
 - **Lessons:** they stay grounded: they use only vetted sources, or every read source if the learner chose "Use mine anyway". Nothing is written from the AI's general knowledge.
 - **Map coverage:** the share of topics covered is logged per goal (`map coverage: 7/9 topics`).
 
 ## 8. Fallback
 
-**When:** there's no `TAVILY_API_KEY`, Tavily fails or reports its quota exhausted (HTTP 429 or 432), or too few sources pass (§4.5).
+**When:** there's no `TAVILY_API_KEY`, Tavily fails or reports its quota exhausted (HTTP 429 or 432), the tracked monthly quota is used up (§10), or too few sources pass (§4.5).
+
+**The switch is seamless:** the goal never shows an error. It keeps moving through the same stages with Wikipedia candidates, and the switch is logged (`search fallback: <reason>`).
 
 **What happens:**
 1. Wikipedia search using `search_subject`, read and checked the same way.
@@ -164,10 +189,15 @@ The goal waits in `awaiting_source_decision`. The page shows:
 
 - **Tavily** (free tier, 1,000 credits a month; a basic search costs 1):
   - **Per new goal:** 2–3 credits, plus up to 3 for a retry round, plus up to 4 for gaps. That's about 10 at most, so roughly **100 new goals a month** on the free tier.
+  - **Tracking:** every Tavily call adds its credits to a `search_usage (month, credits)` row in the database.
+  - **At 80% of `TAVILY_MONTHLY_CREDITS`** (default 1,000): the worker logs a warning once a month (`tavily quota 80% used: 800/1000`), which can be wired to an alert later.
+  - **At 100%:** it stops calling Tavily and uses the fallback (§8) until the month rolls over.
+  - **No runaway calls:** there's no crawling. Calls are only the fixed per-goal searches above, and a goal is never searched twice for the same stage.
 - **OpenRouter:** per goal, 1 intent call, 1–2 check calls and the map call, plus matching. All of it is covered by the existing quota floor.
 - **The learner's limits:** found sources never count toward them.
 - **Speed:**
   - **Embedding model:** the fastembed model is built into the worker image (`FASTEMBED_CACHE_PATH`), with one embedder per process.
+  - **Parallel jobs:** the worker runs **`WORKER_CONCURRENCY` job threads** (default 3), each with its own database connection. Jobs are claimed with `for update skip locked`, so a goal's 4 sources are read in parallel, not one after another.
   - **Time limit:** reading still has its 5-minute cap.
   - **Expected time to a ready map:** about 2–4 minutes on free models, with progress shown throughout.
 
@@ -190,14 +220,21 @@ The goal waits in `awaiting_source_decision`. The page shows:
     - Unvetted found sources replaced.
     - Unvetted user sources leading to `awaiting_source_decision`.
   - Both decisions.
-  - Matching before `ready`, and gap search before `ready`.
-  - The fallback paths: no key, quota, too few sources.
+  - Matching before `ready`.
+  - **Gap search:**
+    - The time budget: 4, 2 or 0 queries depending on the time left.
+    - The 45 s cap: the goal is `ready` with sources still in flight, and they're added later.
+  - **The source check:** batches of 4, and a missing or duplicate verdict asked again once, then treated as not vetted.
+  - **The fallback paths:** no key, HTTP 429/432, tracked quota at 100%, and too few sources. Each ends in a ready map through Wikipedia, with no error shown.
+  - **Quota tracking:** the 80% warning logged once a month.
   - The shared embedder.
+  - Concurrent job threads not claiming the same job.
 - **Database (pgTAP):**
   - The new statuses and columns (`intent`, `search_subject`, `vetted`, `vet_reason`, `found_for_goal`).
   - An `answer_source_decision(goal, choice)` RPC: owner only, and only from `awaiting_source_decision`.
 - **Browser (Playwright, fixture site with a fake Tavily endpoint):**
-  - **"Pick for me"** goes through the stage messages, and the map appears with a source on every topic. Its first lesson has content.
+  - **"Pick for me"** goes through the stage messages, with detailed counts ("Reading 1 of 2 sources…"). The map appears with a source on every topic, and its first lesson has content.
+  - **Reloading mid-preparation** shows the same stage, and it continues.
   - **A sign-in-wall link given by the learner** shows the decision screen.
     - "Find sources for me" ends in a ready map.
     - "Use mine anyway" ends in a ready map.
