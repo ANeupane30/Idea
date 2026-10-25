@@ -53,4 +53,23 @@ describe("format chooser", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("Something went wrong. Please try again.");
     expect(screen.getByRole("button", { name: "Continue" })).toHaveProperty("disabled", false);
   });
+
+  it("offers to add a source when no source covers the topic", () => {
+    render(
+      <LessonView
+        userId="u"
+        title="4 Joins"
+        summary={null}
+        goalId="g"
+        goalTitle="Learn SQL"
+        subtopic={{ id: "t", title: "Joins" }}
+        preferredFormat="text"
+        formatChosen
+        initialLessons={{}}
+        hasSources={false}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Add a source" }).getAttribute("href")).toBe("/goals/g?add=source");
+    expect(screen.getByRole("link", { name: /^Search the web for Joins/ })).toBeTruthy();
+  });
 });

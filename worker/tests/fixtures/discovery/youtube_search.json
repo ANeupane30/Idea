@@ -1,0 +1,4 @@
+{"kind": "youtube#searchListResponse", "items": [
+  {"kind": "youtube#searchResult", "id": {"kind": "youtube#video", "videoId": "abcDEF12345"}, "snippet": {"title": "Budgeting basics"}},
+  {"kind": "youtube#searchResult", "id": {"kind": "youtube#video", "videoId": "zyxWVU98765"}, "snippet": {"title": "50/30/20 rule"}}
+]}

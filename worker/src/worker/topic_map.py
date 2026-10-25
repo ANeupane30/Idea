@@ -8,6 +8,7 @@ from uuid import UUID
 import psycopg
 from pydantic import BaseModel
 
+from worker.goal_ready import on_map_ready
 from worker.jobs import Job, PermanentJobError
 from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult, record_usage
 
@@ -201,6 +202,7 @@ class TopicMapHandler:
                         "update goals set map_status = 'ready' where id = %s and map_status = 'pending'",
                         (goal_id,),
                     )
+                    on_map_ready(conn, goal_id)
                 return
             if goal["map_status"] != "pending":
                 return
@@ -259,6 +261,7 @@ class TopicMapHandler:
             " map_error = null where id = %s",
             (level, goal_id),
         )
+        on_map_ready(conn, goal_id)
 
     def on_retry(self, conn: psycopg.Connection, job: Job) -> None:
         with conn.transaction():

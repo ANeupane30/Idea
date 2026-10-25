@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { linkSchema } from "@/lib/sources";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -13,17 +14,56 @@ export const credentialsSchema = z.object({
 export const FORMATS = ["visual", "text", "examples", "summary"] as const;
 export const LEVELS = ["beginner", "intermediate", "advanced"] as const;
 
+export const LEARNING_STYLES = ["visual_video", "reading", "hands_on"] as const;
+export type LearningStyle = (typeof LEARNING_STYLES)[number];
+
+export const STYLE_LABELS: Record<LearningStyle, string> = {
+  visual_video: "Visual / Video",
+  reading: "Documentation & Reading",
+  hands_on: "Hands-On / Building",
+};
+
+/** The default lesson format for a learning style (as public.style_format). */
+export function styleFormat(style: LearningStyle): (typeof FORMATS)[number] {
+  return style === "visual_video" ? "visual" : style === "hands_on" ? "examples" : "text";
+}
+
+const styleSchema = z.enum(LEARNING_STYLES, "Choose how you like to learn.");
+
 export const preferencesSchema = z.object({
-  preferred_format: z.enum(FORMATS, "Choose a format."),
+  learning_style: styleSchema,
   level: z.enum(LEVELS, "Choose a level."),
 });
 
+export const MAX_START_LINKS = 3;
+export const TOO_MANY_LINKS = "Add up to 3 links.";
+
+/** The start form. "Pick for me" (intent=pick) submits without the learner's sources. */
+export const startSchema = z
+  .object({
+    title: goalTitle(),
+    level: z.enum(LEVELS, "Choose how much you already know."),
+    learning_style: styleSchema.default("reading"),
+    links: z.array(z.string()).default([]),
+    intent: z.string().optional(),
+  })
+  .transform((v) => ({ ...v, links: v.intent === "pick" ? [] : v.links.filter((l) => l.trim() !== "") }))
+  .pipe(
+    z.object({
+      title: z.string(),
+      level: z.enum(LEVELS),
+      learning_style: styleSchema,
+      links: z.array(linkSchema).max(MAX_START_LINKS, TOO_MANY_LINKS),
+      intent: z.string().optional(),
+    }),
+  );
+
+function goalTitle() {
+  return z.string().trim().min(1, "Title can't be empty.").max(120, "Keep the title under 120 characters.");
+}
+
 export const goalSchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, "Title can't be empty.")
-    .max(120, "Keep the title under 120 characters."),
+  title: goalTitle(),
   description: z
     .string()
     .trim()
@@ -50,6 +90,7 @@ export function dbErrorToMessage(err: { message: string }): string {
   if (m.includes("not_clarifying") || m.includes("not_failed"))
     return "This goal's topic map has already moved on. Refresh the page.";
   if (m.includes("invalid_answer")) return "Please write an answer of up to 1000 characters.";
+  if (m.includes("too_many_links")) return TOO_MANY_LINKS;
   return GENERIC_ERROR;
 }
 
