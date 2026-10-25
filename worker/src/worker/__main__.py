@@ -1,5 +1,6 @@
 import logging
 import sys
+import threading
 import time
 from collections.abc import Callable
 
@@ -127,8 +128,24 @@ def main() -> None:
         stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
     settings = Settings()
-    log.info("worker started (provider=%s)", settings.llm_provider)
-    serve(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s, sweep=sweep)
+    n = max(1, settings.worker_concurrency)
+    log.info("worker started (provider=%s, threads=%s)", settings.llm_provider, n)
+    # One connection and one set of handlers per thread (the page renderer isn't thread-safe); the
+    # embedding model is shared. Jobs are claimed with skip locked, so threads never take the same one.
+    threads = [
+        threading.Thread(
+            target=serve,
+            args=(lambda: connect(settings), build_handlers(settings), settings.poll_interval_s),
+            kwargs={"sweep": sweep if i == 0 else None},
+            name=f"jobs-{i}",
+            daemon=True,
+        )
+        for i in range(n)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":
