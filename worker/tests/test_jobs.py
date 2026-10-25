@@ -232,3 +232,25 @@ def test_pending_writes_on_exception_run_on_retry(db):
     assert jobs.run_once(db, {"pw": H()}) is True
     assert ran == [1]
     assert row(db, jid)["status"] == "queued"
+
+
+def _rate_limit_error():
+    import httpx2
+    import openai
+
+    req = httpx2.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+    return openai.RateLimitError("Rate limit exceeded", response=httpx2.Response(429, request=req), body=None)
+
+
+def test_final_message_rate_limit_is_ai_busy():
+    assert jobs.final_message(_rate_limit_error(), "x") == jobs.AI_BUSY
+    assert jobs.AI_BUSY == "Our AI is busy right now. Try again later."
+    assert jobs.final_message(RuntimeError("boom"), "x") == "x"
+
+
+def test_job_failing_on_rate_limit_after_retries_reports_ai_busy(db):
+    jid = add_job(db, status="running", attempts=jobs.MAX_ATTEMPTS)
+    h = Recorder()
+    jobs.fail(db, Job(jid, "k", {}, jobs.MAX_ATTEMPTS, None), _rate_limit_error(), h)
+    assert row(db, jid)["status"] == "failed"
+    assert h.calls == [("permanent", jid, jobs.AI_BUSY)]
