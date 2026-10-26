@@ -14,6 +14,7 @@ from uuid import UUID
 
 import psycopg
 
+from worker.log_setup import configure_logging
 from worker.config import Settings
 from worker.db import connect
 from worker.ingest.embed import make_embedder
@@ -114,9 +115,7 @@ def make_server(
 
 
 def main() -> None:
-    logging.basicConfig(
-        stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+    configure_logging()
     settings = Settings()
     if not settings.lesson_server_token:
         raise RuntimeError("LESSON_SERVER_TOKEN is required")

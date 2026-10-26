@@ -1,11 +1,11 @@
 import logging
-import sys
 import threading
 import time
 from collections.abc import Callable
 
 import psycopg
 
+from worker.log_setup import configure_logging
 from worker.config import Settings
 from worker.db import connect
 from worker.discovery.gaps import FillGapsHandler
@@ -17,7 +17,7 @@ from worker.ingest.handler import IngestHandler
 from worker.ingest.storage import SupabaseStorage
 from worker.jobs import Handler, run_once
 from worker.llm import make_llm
-from worker.prep.check import CheckSourcesHandler
+from worker.prep.check import CheckSourcesHandler, VetFoundHandler
 from worker.prep.find import FindSourcesHandler
 from worker.prep.understand import UnderstandHandler
 from worker.quiz.handler import QuizBankHandler
@@ -120,13 +120,12 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         "understand_goal": UnderstandHandler(llm),
         "find_sources": FindSourcesHandler(settings),
         "check_sources": CheckSourcesHandler(llm),
+        "vet_found": VetFoundHandler(llm),
     }
 
 
 def main() -> None:
-    logging.basicConfig(
-        stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-    )
+    configure_logging()
     settings = Settings()
     n = max(1, settings.worker_concurrency)
     log.info("worker started (provider=%s, threads=%s)", settings.llm_provider, n)

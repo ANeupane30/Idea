@@ -254,3 +254,21 @@ def test_job_failing_on_rate_limit_after_retries_reports_ai_busy(db):
     jobs.fail(db, Job(jid, "k", {}, jobs.MAX_ATTEMPTS, None), _rate_limit_error(), h)
     assert row(db, jid)["status"] == "failed"
     assert h.calls == [("permanent", jid, jobs.AI_BUSY)]
+
+
+def test_run_once_logs_how_long_each_job_took(db, caplog):
+    """Timing lines (grep "timing" in the worker log) show where a goal's preparation spends its time."""
+    from worker import timing
+
+    class Marking(Recorder):
+        def run(self, conn, job):
+            super().run(conn, job)
+            timing.mark("llm", schema="SearchPlan", secs=1.5)
+
+    gid = "11111111-1111-1111-1111-111111111111"
+    add_job(db, kind="understand_goal", payload={"goal_id": gid})
+    with caplog.at_level("INFO", logger="worker.timing"):
+        jobs.run_once(db, {"understand_goal": Marking()})
+    lines = [r.getMessage() for r in caplog.records if r.name == "worker.timing"]
+    assert any(l.startswith(f"timing understand_goal {gid} +") and "llm schema=SearchPlan secs=1.5" in l for l in lines)
+    assert any(l.startswith(f"timing understand_goal {gid} +") and l.endswith("done") for l in lines)

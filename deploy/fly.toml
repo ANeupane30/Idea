@@ -6,7 +6,7 @@ primary_region = "nrt"
 
 [env]
   # anthropic | openrouter. The key is a secret: OPENROUTER_API_KEY or ANTHROPIC_API_KEY.
-  # Models: OPENROUTER_MODELS_SMART / OPENROUTER_MODELS_FAST (defaults are free models; see worker/src/worker/config.py).
+  # Models: OPENROUTER_MODELS_SMART / OPENROUTER_MODELS_FAST (default DeepSeek V4.1 Flash; see worker/src/worker/config.py).
   LLM_PROVIDER = "openrouter"
 
 [processes]
@@ -22,7 +22,5 @@ primary_region = "nrt"
   min_machines_running = 1
   processes = ["lesson"]
 
-[[vm]]
-  memory = "1gb"
-  cpus = 1
-  processes = ["worker", "lesson"]
+# Machine size is set per app in Fly (fly scale vm ...), not here: a size in this file would
+# reset each app's machines on every deploy. Staging runs shared-cpu-2x with 2 GB.

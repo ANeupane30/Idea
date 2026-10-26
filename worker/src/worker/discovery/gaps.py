@@ -1,6 +1,6 @@
 """fill_gaps: one search per uncovered topic, just before the map is shown (time-boxed).
 
-Runs while the goal is matching_sources. Tavily first (Wikipedia without a key or at the quota).
+Runs once the map is shown (or, for goals queued before, while matching_sources). Tavily first (Wikipedia without a key or at the quota).
 The best new candidate per topic is added; it is read, checked and matched like any source, and
 the goal is ready once they're done or at its gap deadline (the sweep)."""
 
@@ -59,7 +59,7 @@ class FillGapsHandler:
                 " coalesce(p.learning_style, 'reading') as style"
                 " from goals g left join learning_prefs p on p.user_id = g.user_id where g.id = %s", (goal_id,),
             ).fetchone()
-            if goal is None or goal["map_status"] != "matching_sources":
+            if goal is None or goal["map_status"] not in ("matching_sources", "ready"):
                 return
             topics = conn.execute(UNCOVERED_SQL, {"goal": goal_id, "covered": COVERED}).fetchall()[:n]
             have = conn.execute(
@@ -77,10 +77,10 @@ class FillGapsHandler:
             per_topic = self._search(conn, [f"{t['title']} {goal['subject']} {word}" for t in topics],
                                      [f"{t['title']} {goal['subject']}" for t in topics])
             for topic, hits in zip(topics, per_topic):
-                for type_, url in hits:
+                for type_, url, text in hits:
                     if url_key(url) in urls or (type_ == "web" and web_left <= 0) or (type_ == "youtube" and videos_left <= 0):
                         continue
-                    if not self._add(conn, goal, goal_id, topic["id"], type_, url):
+                    if not self._add(conn, goal, goal_id, topic["id"], type_, url, text):
                         break
                     urls.add(url_key(url))
                     added += 1
@@ -97,32 +97,33 @@ class FillGapsHandler:
         left = self._quota(self._s.openrouter_api_key)
         return left is not None and left < QUOTA_FLOOR
 
-    def _search(self, conn, tavily_queries: list[str], wiki_queries: list[str]) -> list[list[tuple[str, str]]]:
-        """Candidates (type, url) per topic, best first."""
+    def _search(self, conn, tavily_queries: list[str], wiki_queries: list[str]) -> list[list[tuple[str, str, str | None]]]:
+        """Candidates (type, url, page text if the search returned it) per topic, best first."""
         if self._s.tavily_api_key:
             try:
                 results = self._tavily(conn, tavily_queries, api_key=self._s.tavily_api_key,
                                        monthly_credits=self._s.tavily_monthly_credits, url=self._s.tavily_url)
-                return [[("youtube" if h.is_video else "web", h.url) for h in sorted(hits, key=lambda h: -h.score)]
+                return [[("youtube" if h.is_video else "web", h.url, None if h.is_video else h.raw_content)
+                         for h in sorted(hits, key=lambda h: -h.score)]
                         for hits in results]
             except QuotaExhausted as e:
                 log.info("search fallback (gaps): Tavily quota (%s)", e)
         out = []
         for q in wiki_queries:
             hits = self._wiki(q, api_url=self._s.wikipedia_api_url, user_agent=self._s.fetch_user_agent)
-            out.append([("web", wikipedia.article_url(h.title, self._s.wikipedia_article_url)) for h in hits
+            out.append([("web", wikipedia.article_url(h.title, self._s.wikipedia_article_url), None) for h in hits
                         if h.wordcount >= MIN_WORDS and not h.disambiguation])
         return out
 
     @staticmethod
-    def _add(conn, goal, goal_id: UUID, topic_id: UUID, type_: str, url: str) -> bool:
+    def _add(conn, goal, goal_id: UUID, topic_id: UUID, type_: str, url: str, text: str | None = None) -> bool:
         try:
             with conn.transaction():
                 conn.execute("select set_config('app.creating_goal', %s, true)", (str(goal_id),))
                 conn.execute(
-                    "insert into sources (user_id, goal_id, type, url_or_file, origin, discovered_for)"
-                    " values (%s, %s, %s, %s, 'auto', %s)",
-                    (goal["user_id"], goal_id, type_, url, topic_id),
+                    "insert into sources (user_id, goal_id, type, url_or_file, origin, discovered_for, prefetched)"
+                    " values (%s, %s, %s, %s, 'auto', %s, %s)",
+                    (goal["user_id"], goal_id, type_, url, topic_id, text),
                 )
                 conn.execute("select set_config('app.creating_goal', '', true)")
             return True
