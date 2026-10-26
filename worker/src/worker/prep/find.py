@@ -11,7 +11,7 @@ import psycopg
 from worker.config import Settings
 from worker.discovery import tavily, wikipedia
 from worker.discovery.tavily import QuotaExhausted, TavilyHit
-from worker.goal_ready import finish_reading, starting_point_map
+from worker.goal_ready import finish_reading, queue_job, starting_point_map
 from worker.ingest.urls import url_key
 from worker.jobs import Job
 
@@ -122,6 +122,8 @@ class FindSourcesHandler:
             conn.execute(
                 "update goals set map_status = 'reading_sources', reading_started_at = now() where id = %s", (goal_id,)
             )
+            if any(text for _, _, _, text in candidates):
+                queue_job(conn, "vet_found", goal_id)  # checked from their text while they're read
             if not candidates:
                 finish_reading(conn, goal_id)  # what the goal already has was read before
 

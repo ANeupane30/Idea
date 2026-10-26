@@ -17,7 +17,7 @@ from worker.ingest.handler import IngestHandler
 from worker.ingest.storage import SupabaseStorage
 from worker.jobs import Handler, run_once
 from worker.llm import make_llm
-from worker.prep.check import CheckSourcesHandler
+from worker.prep.check import CheckSourcesHandler, VetFoundHandler
 from worker.prep.find import FindSourcesHandler
 from worker.prep.understand import UnderstandHandler
 from worker.quiz.handler import QuizBankHandler
@@ -120,6 +120,7 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
         "understand_goal": UnderstandHandler(llm),
         "find_sources": FindSourcesHandler(settings),
         "check_sources": CheckSourcesHandler(llm),
+        "vet_found": VetFoundHandler(llm),
     }
 
 
