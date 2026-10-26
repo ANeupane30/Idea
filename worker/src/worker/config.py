@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     tavily_url: str = "https://api.tavily.com/search"
     tavily_monthly_credits: int = 1000
     # Job threads per worker process (each with its own database connection).
-    worker_concurrency: int = 3
+    worker_concurrency: int = 6
     # Optional: without it, Visual / Video learners get Wikipedia articles only.
     youtube_api_key: str | None = None
     youtube_api_url: str = "https://www.googleapis.com/youtube/v3/search"

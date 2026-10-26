@@ -8,6 +8,8 @@ implicit transaction that never commits.
 """
 
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from dataclasses import dataclass
 from uuid import UUID
@@ -89,6 +91,7 @@ class IngestHandler:
         user_agent: str = DEFAULT_USER_AGENT,
     ):
         self._llm = llm
+        self._conn_lock = threading.Lock()
         self._embedder = embedder
         self._storage = storage
         self._renderer = renderer
@@ -119,9 +122,10 @@ class IngestHandler:
     def _bill(self, conn: psycopg.Connection, source_id: UUID, user_id: UUID, kind: str):
         # Each call's usage commits right away, so it survives a later failure.
         def bill(result: LLMResult) -> None:
-            record_usage(conn, user_id, kind, result)
-            with conn.transaction():
-                self._heartbeat(conn, source_id)
+            with self._conn_lock:  # matching calls bill from several threads over one connection
+                record_usage(conn, user_id, kind, result)
+                with conn.transaction():
+                    self._heartbeat(conn, source_id)
 
         return bill
 
@@ -413,10 +417,16 @@ class IngestHandler:
         shortlist, top_chunk = self._shortlist(conn, src["goal_id"], chash)
 
         rows: list[tuple[UUID, float, str]] = []
-        for start in range(0, len(shortlist), BATCH):
-            batch = shortlist[start : start + BATCH]
+        batches = [shortlist[start : start + BATCH] for start in range(0, len(shortlist), BATCH)]
+
+        def rate(batch):
+            return self._rate(conn, source_id, src["user_id"], src["goal_title"], [item for _, item in batch])
+
+        # The batches are rated at once (each call takes seconds); results keep the batch order.
+        with ThreadPoolExecutor(max_workers=max(1, len(batches))) as pool:
+            responses = list(pool.map(rate, batches))
+        for batch, resp in zip(batches, responses):
             ids = {item.key: sid for sid, item in batch}
-            resp = self._rate(conn, source_id, src["user_id"], src["goal_title"], [item for _, item in batch])
             rows.extend((ids[r.key], round(r.relevance, 2), r.reason.strip()) for r in resp.results)
 
         top = max(rows, key=lambda r: r[1], default=None)

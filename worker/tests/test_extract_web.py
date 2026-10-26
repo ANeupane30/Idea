@@ -172,3 +172,29 @@ def test_headings_skip_comments_between_a_heading_and_its_text():
 
     (h,) = _headings("<html><body><h2>Growth</h2><!-- ad --><p>Plants grow from seeds.</p></body></html>")
     assert h.title == "Growth" and h.first_sentence == "Plants grow from seeds."
+
+
+def test_at_most_two_pages_render_at_once():
+    """Each render starts a browser; six job threads rendering at once wouldn't fit in 2 GB."""
+    import threading
+    import time
+
+    from worker.ingest.extract_web import render_slot
+
+    now, peak, guard = [0], [0], threading.Lock()
+
+    def render():
+        with render_slot():
+            with guard:
+                now[0] += 1
+                peak[0] = max(peak[0], now[0])
+            time.sleep(0.05)
+            with guard:
+                now[0] -= 1
+
+    threads = [threading.Thread(target=render) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert peak[0] == 2
