@@ -8,16 +8,79 @@ from uuid import UUID
 
 import psycopg
 
-from worker.goal_ready import queue_job, search_again_or_fall_back, starting_point_map
+from worker.goal_ready import finish_reading, queue_job, search_again_or_fall_back, starting_point_map
+from worker.ingest.extract_web import extract_markdown
 from worker.jobs import Job
 from worker.llm import LLM
-from worker.prep.vet import is_vetted, load_for_check, vet
+from worker.prep.vet import MAX_TEXT, SourceForCheck, is_vetted, load_for_check, vet
 
 log = logging.getLogger(__name__)
 
 KEEP_FOUND = 4
 MAX_VIDEOS = 2
 MIN_VETTED = 2
+
+
+class VetFoundHandler:
+    """vet_found: check found pages from the text the search returned, while they're being read.
+
+    Pages that pass are vetted; pages that don't are deleted. Whatever has no verdict (or no text)
+    is left for check_sources, which then has little or nothing to ask the model."""
+
+    def __init__(self, llm: LLM):
+        self._llm = llm
+
+    def run(self, conn: psycopg.Connection, job: Job) -> None:
+        goal_id = UUID(str(job.payload["goal_id"]))
+        with conn.transaction():
+            goal = conn.execute(
+                "select map_status, coalesce(intent, title) as intent from goals where id = %s", (goal_id,)
+            ).fetchone()
+            if goal is None or goal["map_status"] not in PRE_CHECK:
+                return
+            rows = conn.execute(
+                "select id, coalesce(title, url_or_file) as title, url_or_file, type, prefetched from sources"
+                " where goal_id = %s and origin = 'auto' and vetted is null and prefetched is not null"
+                " order by created_at, id", (goal_id,),
+            ).fetchall()
+        to_check = [_from_text(r) for r in rows]
+        verdicts = vet(self._llm, goal["intent"], to_check)  # no transaction open across the AI calls
+
+        with conn.transaction():
+            locked = conn.execute("select map_status from goals where id = %s for update", (goal_id,)).fetchone()
+            if locked is None or locked["map_status"] not in PRE_CHECK:
+                return
+            for c in to_check:
+                v = verdicts.get(c.id)
+                if v is None:
+                    continue  # check_sources asks again after reading
+                if is_vetted(v):
+                    conn.execute("update sources set vetted = true, vet_reason = %s where id = %s and vetted is null",
+                                 (v.reason, c.id))
+                else:
+                    conn.execute("delete from sources where id = %s and vetted is null", (c.id,))
+            finish_reading(conn, goal_id)  # a deleted page may have been the last one in flight
+
+    def on_retry(self, conn: psycopg.Connection, job: Job) -> None:
+        pass
+
+    def on_permanent_failure(self, conn: psycopg.Connection, job: Job, message: str) -> None:
+        pass  # check_sources checks them after reading instead
+
+
+PRE_CHECK = ("reading_sources", "checking_sources")
+
+
+def _from_text(row) -> SourceForCheck:
+    page = extract_markdown(None, row["prefetched"])
+    return SourceForCheck(
+        id=str(row["id"]),
+        title=row["title"] or page.title or "",
+        url=row["url_or_file"],
+        type=row["type"],
+        headings=[h.title for h in page.headings],
+        text=" ".join(s.text for s in page.segments)[:MAX_TEXT],
+    )
 
 
 class CheckSourcesHandler:

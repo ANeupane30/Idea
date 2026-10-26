@@ -262,11 +262,14 @@ def test_make_llm_openrouter():
         make_llm(Settings(llm_provider="openrouter", openrouter_api_key=None, _env_file=None))
 
 
-def test_openrouter_default_models_are_free():
+def test_openrouter_default_models_have_known_prices():
+    """Usage is billed at the model's own rates, never the "unknown model" maximum."""
+    from worker.llm import PRICES_PER_MTOK
+
     s = Settings(_env_file=None)
     for value in (s.openrouter_models_smart, s.openrouter_models_fast):
         ids = [m.strip() for m in value.split(",")]
-        assert ids and all(m.endswith(":free") or m == "openrouter/free" for m in ids)
+        assert ids and all(m in PRICES_PER_MTOK for m in ids)
 
 
 @pytest.mark.parametrize("model", ["vendor/big:free", "openrouter/free"])

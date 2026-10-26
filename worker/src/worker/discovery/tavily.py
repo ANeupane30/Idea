@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 import httpx2 as httpx
 import psycopg
 
+from worker import timing
+from worker.timing import Stopwatch
+
 log = logging.getLogger(__name__)
 
 TAVILY_URL = "https://api.tavily.com/search"
@@ -31,6 +34,7 @@ class TavilyHit:
     title: str
     score: float
     is_video: bool
+    raw_content: str | None = None  # the page's text as markdown, so it needn't be fetched
 
 
 class QuotaExhausted(Exception):
@@ -67,6 +71,7 @@ def _fetch(query: str, *, api_key: str, url: str, transport) -> list[TavilyHit] 
         "search_depth": "basic",
         "max_results": MAX_RESULTS,
         "exclude_domains": EXCLUDED_DOMAINS,
+        "include_raw_content": "markdown",
     }
     try:
         with httpx.Client(timeout=TIMEOUT_S, transport=transport) as client:
@@ -82,7 +87,7 @@ def _fetch(query: str, *, api_key: str, url: str, transport) -> list[TavilyHit] 
     try:
         return [
             TavilyHit(h["url"], h.get("title") or h["url"], float(h.get("score") or 0),
-                      (urlsplit(h["url"]).hostname or "").lower() in _VIDEO_HOSTS)
+                      (urlsplit(h["url"]).hostname or "").lower() in _VIDEO_HOSTS, h.get("raw_content") or None)
             for h in r.json()["results"]
             # A PDF link can't be read as a page (the learner uploads PDFs), so it isn't a candidate.
             if not urlsplit(h["url"]).path.lower().endswith(".pdf")
@@ -116,8 +121,9 @@ def search_each(
     """Several searches at once, results per query (empty where one failed)."""
     if _used(conn) >= monthly_credits:
         raise QuotaExhausted("monthly Tavily credits used up")
-    with ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
+    with Stopwatch() as sw, ThreadPoolExecutor(max_workers=max(1, len(queries))) as pool:
         results = list(pool.map(lambda q: _fetch(q, api_key=api_key, url=url, transport=transport), queries))
+    timing.mark("tavily", queries=len(queries), secs=sw.secs)
     for found in results:
         if found is not None:
             _count(conn, monthly_credits)

@@ -38,14 +38,22 @@ def gjob(gid, n=4):
     return Job(id=gid, kind="fill_gaps", payload={"goal_id": str(gid), "queries": n}, attempts=1, step=None)
 
 
-def test_matching_with_uncovered_topics_starts_the_gap_phase(db, matching):
+def test_matching_done_shows_the_map_and_searches_gaps_after(db, matching):
+    """The map doesn't wait for the gap search (time to map, target 30 s): it runs after ready."""
     _, gid = matching
     with db.transaction():
         finish_matching(db, gid)
     g = goal(db, gid)
-    assert g["map_status"] == "matching_sources" and g["gap_deadline"] is not None
+    assert g["map_status"] == "ready" and g["gap_deadline"] is not None
     (payload,) = [r["payload"] for r in queued_jobs(db, "fill_gaps", "goal_id", gid)]
     assert payload["queries"] == 4
+
+
+def test_fill_gaps_adds_sources_to_a_ready_goal(db, matching):
+    _, gid = matching
+    db.execute("update goals set map_status = 'ready' where id = %s", (gid,))
+    fill(db, gid, n=2)
+    assert len(auto_sources(db, gid)) == 2
 
 
 def test_late_preparation_gets_no_gap_phase(db, matching):
