@@ -34,6 +34,7 @@ class TavilyHit:
     title: str
     score: float
     is_video: bool
+    raw_content: str | None = None  # the page's text as markdown, so it needn't be fetched
 
 
 class QuotaExhausted(Exception):
@@ -70,6 +71,7 @@ def _fetch(query: str, *, api_key: str, url: str, transport) -> list[TavilyHit] 
         "search_depth": "basic",
         "max_results": MAX_RESULTS,
         "exclude_domains": EXCLUDED_DOMAINS,
+        "include_raw_content": "markdown",
     }
     try:
         with httpx.Client(timeout=TIMEOUT_S, transport=transport) as client:
@@ -85,7 +87,7 @@ def _fetch(query: str, *, api_key: str, url: str, transport) -> list[TavilyHit] 
     try:
         return [
             TavilyHit(h["url"], h.get("title") or h["url"], float(h.get("score") or 0),
-                      (urlsplit(h["url"]).hostname or "").lower() in _VIDEO_HOSTS)
+                      (urlsplit(h["url"]).hostname or "").lower() in _VIDEO_HOSTS, h.get("raw_content") or None)
             for h in r.json()["results"]
             # A PDF link can't be read as a page (the learner uploads PDFs), so it isn't a candidate.
             if not urlsplit(h["url"]).path.lower().endswith(".pdf")

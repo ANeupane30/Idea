@@ -7,9 +7,9 @@ from worker.jobs import Job
 from worker.prep.find import FindSourcesHandler, pick_candidates
 
 
-def hit(url, score=0.5, video=None):
+def hit(url, score=0.5, video=None, raw=None):
     return TavilyHit(url, url.rsplit("/", 1)[-1] or url, score,
-                     video if video is not None else ("youtube" in url or "youtu.be" in url))
+                     video if video is not None else ("youtube" in url or "youtu.be" in url), raw)
 
 
 def test_pick_candidates_caps_domains_and_videos_and_sorts():

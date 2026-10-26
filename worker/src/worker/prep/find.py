@@ -80,7 +80,7 @@ class FindSourcesHandler:
         subject = goal["search_subject"] or goal["title"]
         queries = list(goal["search_queries"] or []) or [subject]
 
-        candidates: list[tuple[str, str, float | None]] = []  # (type, url, score)
+        candidates: list[tuple[str, str, float | None, str | None]] = []  # (type, url, score, page text)
         reason = None
         if goal["search_round"] >= 1:
             reason = "too few sources passed"
@@ -91,7 +91,7 @@ class FindSourcesHandler:
                 hits = self._tavily(conn, queries, api_key=self._s.tavily_api_key,
                                     monthly_credits=self._s.tavily_monthly_credits, url=self._s.tavily_url)
                 picked = pick_candidates(hits, style=goal["style"], exclude=existing)
-                candidates = [("youtube" if h.is_video else "web", h.url, h.score) for h in picked]
+                candidates = [("youtube" if h.is_video else "web", h.url, h.score, h.raw_content) for h in picked]
                 if not candidates:
                     reason = "no usable Tavily results"
             except QuotaExhausted as e:
@@ -101,7 +101,7 @@ class FindSourcesHandler:
             hits = self._wiki(subject, api_url=self._s.wikipedia_api_url, user_agent=self._s.fetch_user_agent)
             urls = [wikipedia.article_url(h.title, self._s.wikipedia_article_url) for h in hits
                     if h.wordcount >= MIN_WORDS and not h.disambiguation]
-            candidates = [("web", u, None) for u in urls if url_key(u) not in existing][:WIKI_CANDIDATES]
+            candidates = [("web", u, None, None) for u in urls if url_key(u) not in existing][:WIKI_CANDIDATES]
 
         with conn.transaction():
             locked = conn.execute("select map_status from goals where id = %s for update", (goal_id,)).fetchone()
@@ -112,11 +112,11 @@ class FindSourcesHandler:
                 return
             # Sources join a goal that has no map yet the same way the learner's own do at creation.
             conn.execute("select set_config('app.creating_goal', %s, true)", (str(goal_id),))
-            for type_, url, score in candidates:
+            for type_, url, score, text in candidates:
                 conn.execute(
-                    "insert into sources (user_id, goal_id, type, url_or_file, origin, found_for_goal, search_score)"
-                    " values (%s, %s, %s, %s, 'auto', true, %s)",
-                    (goal["user_id"], goal_id, type_, url, score),
+                    "insert into sources (user_id, goal_id, type, url_or_file, origin, found_for_goal, search_score,"
+                    " prefetched) values (%s, %s, %s, %s, 'auto', true, %s, %s)",
+                    (goal["user_id"], goal_id, type_, url, score, text if type_ == "web" else None),
                 )
             conn.execute("select set_config('app.creating_goal', '', true)")
             conn.execute(

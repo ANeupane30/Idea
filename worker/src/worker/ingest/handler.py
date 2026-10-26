@@ -27,7 +27,7 @@ from worker.ingest.embed import Embedder
 from worker.ingest.embeddings import ensure_subtopic_embeddings
 from worker.ingest.extract_outline import extract_outline
 from worker.ingest.extract_pdf import extract_pdf
-from worker.ingest.extract_web import Renderer, extract_web
+from worker.ingest.extract_web import MIN_TEXT_CHARS, extract_markdown, Renderer, extract_web
 from worker.ingest.extract_youtube import TranscriptSource, extract_youtube
 from worker.ingest.mapping import (
     BATCH,
@@ -236,6 +236,10 @@ class IngestHandler:
     def _extract(self, src, kind: str, key: str, pdf_bytes: bytes | None, limits: Limits) -> Extracted:
         if kind == "outline":
             return extract_outline(src["outline_text"])
+        if kind == "web" and src.get("prefetched"):
+            found = extract_markdown(src.get("title"), src["prefetched"])
+            if sum(len(s.text) for s in found.segments) >= MIN_TEXT_CHARS:
+                return found  # the search returned the page's text: no fetch, no render
         if kind == "web":
             return extract_web(
                 src["url_or_file"],

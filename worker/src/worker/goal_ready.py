@@ -75,7 +75,7 @@ def finish_matching(conn: psycopg.Connection, goal_id: UUID) -> None:
                 "insert into jobs (kind, payload) values ('fill_gaps', %s)",
                 (Jsonb({"goal_id": str(goal_id), "queries": n}),),
             )
-            return
+    # The map is shown now; gap sources (if searched for) are read and matched after, like any late source.
     _ready(conn, goal_id)
 
 

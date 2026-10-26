@@ -156,6 +156,36 @@ def _headings(html: str) -> list[Heading]:
     return out
 
 
+_MD_HEADING = re.compile(r"^(#{1,3})\s+(.+?)\s*#*\s*$")
+_MD_SKIP = re.compile(r"^(#{4,}|!\[|\[!\[|[-*_]{3,}\s*$|\|)")  # small headings, images, rules, tables
+
+
+def extract_markdown(title: str | None, markdown: str) -> Extracted:
+    """A page's text as a search returned it (markdown): paragraphs, and H1-H3 as its headings."""
+    segments: list[Segment] = []
+    headings: list[Heading] = []
+    waiting: list[tuple[str, int]] = []  # headings still looking for their first sentence
+    for line in (ln.strip() for ln in markdown.splitlines()):
+        if not line:
+            continue
+        m = _MD_HEADING.match(line)
+        if m:
+            waiting.append((clean_text(m.group(2)), len(m.group(1))))
+            continue
+        if _MD_SKIP.match(line):
+            continue
+        text = clean_text(re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", line))  # [text](link) -> text
+        if not text:
+            continue
+        for h_title, level in waiting:
+            if h_title and h_title.casefold().rstrip(":") not in _BOILERPLATE:
+                headings.append(Heading(h_title, level, first_sentence(text)))
+        waiting = []
+        segments.append(Segment(text, {"anchor": " ".join(text.split()[:ANCHOR_WORDS])}))
+    first_h1 = next((h.title for h in headings if h.level == 1), None)
+    return Extracted(title=title or first_h1, segments=segments, headings=headings)
+
+
 def extract_web(
     url: str,
     *,
