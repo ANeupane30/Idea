@@ -10,7 +10,7 @@ from worker.config import Settings
 from worker.db import connect
 from worker.discovery.gaps import FillGapsHandler
 from worker.goal_ready import sweep
-from worker.ingest.embed import make_embedder
+from worker.ingest.embed import FastEmbedder, make_embedder
 from worker.ingest.extract_web import PlaywrightRenderer
 from worker.ingest.extract_youtube import YouTubeTranscriptSource
 from worker.ingest.handler import IngestHandler
@@ -124,10 +124,20 @@ def build_handlers(settings: Settings) -> dict[str, Handler]:
     }
 
 
+def warm_up(settings: Settings) -> None:
+    """Load the embedding model before any job, so a goal's first source doesn't wait for it."""
+    if settings.embedder != "fastembed":
+        return
+    t = time.monotonic()
+    FastEmbedder().embed_queries(["warm up"])
+    log.info("embedding model loaded in %.1fs", time.monotonic() - t)
+
+
 def main() -> None:
     configure_logging()
     settings = Settings()
     n = max(1, settings.worker_concurrency)
+    warm_up(settings)
     log.info("worker started (provider=%s, threads=%s)", settings.llm_provider, n)
     # One connection and one set of handlers per thread (the page renderer isn't thread-safe); the
     # embedding model is shared. Jobs are claimed with skip locked, so threads never take the same one.

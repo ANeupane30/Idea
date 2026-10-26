@@ -2,6 +2,7 @@
 
 from typing import Protocol
 import re
+import threading
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -71,7 +72,7 @@ class PlaywrightRenderer:
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
         from playwright.sync_api import sync_playwright
 
-        with sync_playwright() as p:
+        with render_slot(), sync_playwright() as p:
             browser = p.chromium.launch(chromium_sandbox=True)
             try:
                 context = browser.new_context(
@@ -154,6 +155,16 @@ def _headings(html: str) -> list[Heading]:
                 break
         out.append(Heading(title, int(el.tag[1]), first_sentence(following)))
     return out
+
+
+# Each render starts a browser (~200 MB): at most this many at once in the whole worker.
+MAX_RENDERS = 2
+_render_slots = threading.BoundedSemaphore(MAX_RENDERS)
+
+
+def render_slot() -> threading.BoundedSemaphore:
+    """with render_slot(): ... -- waits for one of the MAX_RENDERS slots."""
+    return _render_slots
 
 
 _MD_HEADING = re.compile(r"^(#{1,3})\s+(.+?)\s*#*\s*$")

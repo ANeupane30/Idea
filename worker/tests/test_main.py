@@ -103,6 +103,7 @@ def test_main_starts_worker_threads_and_a_sweeper(monkeypatch):
     calls = []
     monkeypatch.setattr(main_mod, "Settings", lambda: Settings(_env_file=None, worker_concurrency=3, llm_provider="fake"))
     monkeypatch.setattr(main_mod, "build_handlers", lambda s: {"h": object()})
+    monkeypatch.setattr(main_mod, "warm_up", lambda s: None)
     monkeypatch.setattr(main_mod, "serve", lambda connect, handlers, poll, sweep=None, run=None: calls.append(
         (handlers, sweep, run)))
     main_mod.main()
@@ -137,3 +138,21 @@ def test_two_connections_claim_a_job_once():
         setup.execute("delete from jobs where kind = 'claim_test'")
         for c in (a, b, setup):
             c.close()
+
+
+def test_the_embedding_model_is_loaded_before_jobs_start(monkeypatch):
+    """Seen on staging: loading it on the first goal's first source cost 5 s."""
+    from worker.config import Settings
+    from worker.ingest import embed
+
+    calls = []
+    monkeypatch.setattr(embed.FastEmbedder, "embed_queries", lambda self, texts: calls.append(texts) or [[0.0]])
+    main_mod.warm_up(Settings(_env_file=None, embedder="fastembed"))
+    main_mod.warm_up(Settings(_env_file=None, embedder="fake"))
+    assert calls == [["warm up"]]
+
+
+def test_six_job_threads_by_default():
+    from worker.config import Settings
+
+    assert Settings(_env_file=None).worker_concurrency == 6
