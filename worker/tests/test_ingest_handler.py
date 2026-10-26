@@ -320,7 +320,15 @@ def test_off_topic_source(db, make_user, make_ready_goal, make_source):
     assert set(coverage(db, gid).values()) == {"gap"}
 
 
-def test_mapping_repair_then_fail(db, make_user, make_ready_goal, make_source):
+@pytest.fixture
+def one_batch(monkeypatch):
+    """Scripted AI replies are taken in order: rate the whole shortlist in one batch."""
+    from worker.ingest import handler as handler_mod
+
+    monkeypatch.setattr(handler_mod, "BATCH", 1000)
+
+
+def test_mapping_repair_then_fail(db, make_user, make_ready_goal, make_source, one_batch):
     uid = make_user()
     sid = make_source(uid, make_ready_goal(uid), "http://127.0.0.1/article.html")
     empty = MappingResponse(results=[])
@@ -333,7 +341,7 @@ def test_mapping_repair_then_fail(db, make_user, make_ready_goal, make_source):
     assert n == 2
 
 
-def test_mapping_refusal_fails_with_mapping_message_and_bills(db, make_user, make_ready_goal, make_source):
+def test_mapping_refusal_fails_with_mapping_message_and_bills(db, make_user, make_ready_goal, make_source, one_batch):
     from worker.llm import LLMRefusal
 
     uid = make_user()
@@ -409,7 +417,7 @@ def test_archived_goal_skips_write(db, make_user, make_ready_goal, make_source):
     assert source(db, sid)["status"] == "failed"
 
 
-def test_retry_resumes_from_cache(db, make_user, make_ready_goal, make_source):
+def test_retry_resumes_from_cache(db, make_user, make_ready_goal, make_source, one_batch):
     uid = make_user()
     sid = make_source(uid, make_ready_goal(uid), "http://127.0.0.1/article.html")
     empty = MappingResponse(results=[])
@@ -536,3 +544,32 @@ def test_off_topic_automatic_source_is_removed(db, make_user, make_ready_goal):
     handler(site=Site(BAKING)).run(db, job(sid))
     assert source(db, sid) is None  # the learner only sees automatic sources that help
 
+
+
+def test_a_sources_matching_calls_run_in_parallel(db, make_user, make_ready_goal, make_source, monkeypatch):
+    """Seen on staging: two matching calls per source, one after the other (~4 s each)."""
+    import threading
+    import time
+
+    from worker.ingest import handler as handler_mod
+
+    monkeypatch.setattr(handler_mod, "BATCH", 2)  # several batches from the fixture map
+    now, peak, guard = [0], [0], threading.Lock()
+
+    def on_call(schema):
+        if schema is MappingResponse:
+            with guard:
+                now[0] += 1
+                peak[0] = max(peak[0], now[0])
+            time.sleep(0.1)
+            with guard:
+                now[0] -= 1
+
+    uid = make_user()
+    sid = make_source(uid, make_ready_goal(uid), "http://127.0.0.1/article.html")
+    spy = SpyLLM(on_call=on_call)
+    handler(llm=spy).run(db, job(sid))
+    assert source(db, sid)["status"] == "ready"
+    assert spy.schemas.count(MappingResponse) >= 2 and peak[0] >= 2
+    usage = db.execute("select count(*) as n from usage_events where user_id = %s and kind = 'map'", (uid,)).fetchone()["n"]
+    assert usage == spy.schemas.count(MappingResponse)  # every call billed

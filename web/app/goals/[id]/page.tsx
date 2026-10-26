@@ -5,7 +5,7 @@ import { AppShell } from "@/components/app-shell";
 import { getViewer } from "@/components/site-header";
 import { InfoChip } from "@/components/ui/chips";
 import { createClient } from "@/lib/supabase/server";
-import { isPreparing } from "@/lib/prep";
+import { isPreparing, topicsReady } from "@/lib/prep";
 import {
   mainReference,
   SOURCE_COLUMNS,
@@ -33,17 +33,14 @@ const LEVELS = ["beginner", "intermediate", "advanced"] as const;
 const STARTING_POINT_NOTE =
   "We couldn't find good learning material for this goal, so this map is a starting point. Add your own sources to improve it.";
 
-type TopRow = { state: CoverageState; subtopics: { parent_id: string | null } };
-
-/** Top-level topics with a source, out of all of them (while lessons are prepared). */
+/** Main topics with a source, out of all of them (while lessons are prepared). */
 async function topicCounts(goalId: string): Promise<{ ready: number; total: number }> {
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("subtopic_coverage")
-    .select("state, subtopics!inner(parent_id)")
-    .eq("goal_id", goalId);
-  const tops = ((data ?? []) as unknown as TopRow[]).filter((r) => r.subtopics.parent_id === null);
-  return { ready: tops.filter((r) => r.state !== "gap").length, total: tops.length };
+  const [{ data: tops }, { data: states }] = await Promise.all([
+    supabase.from("subtopics").select("id").eq("goal_id", goalId).is("parent_id", null),
+    supabase.from("subtopic_coverage").select("subtopic_id, state").eq("goal_id", goalId),
+  ]);
+  return topicsReady(tops ?? [], states ?? []);
 }
 
 async function WorkspaceSlot({

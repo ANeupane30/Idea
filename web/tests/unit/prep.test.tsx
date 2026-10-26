@@ -185,3 +185,17 @@ describe("a lesson with no sources", () => {
     expect(screen.queryByRole("link", { name: /^Search the web for/ })).toBeNull();
   });
 });
+
+describe("topicsReady", () => {
+  it("counts the main topics with a source, out of all main topics", async () => {
+    const { topicsReady } = await import("@/lib/prep");
+    const tops = [{ id: "a" }, { id: "b" }, { id: "c" }];
+    const states = [
+      { subtopic_id: "a", state: "covered" },
+      { subtopic_id: "b", state: "gap" },
+      { subtopic_id: "c", state: "thin" },
+      { subtopic_id: "a1", state: "covered" }, // a child topic: not counted
+    ];
+    expect(topicsReady(tops, states)).toEqual({ ready: 2, total: 3 });
+  });
+});

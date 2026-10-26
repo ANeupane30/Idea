@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormError } from "@/components/form-error";
 import { button, field } from "@/components/ui/buttons";
 import { Icon } from "@/components/ui/icon";
-import { isPreparing, stageText } from "@/lib/prep";
+import { isPreparing, stageText, topicsReady } from "@/lib/prep";
 import { SOURCE_COLUMNS, stageOf, type SourceRow } from "@/lib/sources";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { GENERIC_ERROR } from "@/lib/validation";
@@ -73,21 +73,20 @@ export function MapStatus({
     let stopped = false;
     let refreshedAt = 0;
     const timer = setInterval(async () => {
-      const [{ data }, { data: rows }, { data: cover }] = await Promise.all([
+      const matching = goal.map_status === "matching_sources";
+      const [{ data }, { data: rows }, { data: tops }, { data: states }] = await Promise.all([
         supabase.from("goals").select("map_status, map_delayed").eq("id", goal.id).maybeSingle(),
         supabase.from("sources").select(SOURCE_COLUMNS).eq("goal_id", goal.id).order("created_at"),
-        goal.map_status === "matching_sources"
-          ? supabase.from("subtopic_coverage").select("state, subtopics!inner(parent_id)").eq("goal_id", goal.id)
+        matching
+          ? supabase.from("subtopics").select("id").eq("goal_id", goal.id).is("parent_id", null)
+          : Promise.resolve({ data: null }),
+        matching
+          ? supabase.from("subtopic_coverage").select("subtopic_id, state").eq("goal_id", goal.id)
           : Promise.resolve({ data: null }),
       ]);
       if (stopped || !data) return;
       if (rows) setSources(rows as SourceRow[]);
-      if (cover) {
-        const tops = (cover as unknown as { state: string; subtopics: { parent_id: string | null } }[]).filter(
-          (c) => c.subtopics.parent_id === null,
-        );
-        setTopics({ ready: tops.filter((c) => c.state !== "gap").length, total: tops.length });
-      }
+      if (tops && states) setTopics(topicsReady(tops, states));
       if (data.map_status === goal.map_status) {
         setDelayed(data.map_delayed);
       } else if (Date.now() - refreshedAt > 5000) {

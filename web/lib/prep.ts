@@ -17,6 +17,16 @@ export function isPreparing(status: string): boolean {
 
 const DONE_READING = new Set(["awaiting_map", "ready"]);
 
+/** Main topics with a source (covered or thin), out of all main topics ("Preparing lessons: k of m"). */
+export function topicsReady(
+  mainTopics: { id: string }[],
+  states: { subtopic_id: string; state: string }[],
+): { ready: number; total: number } {
+  const state = new Map(states.map((s) => [s.subtopic_id, s.state]));
+  const ready = mainTopics.filter((t) => (state.get(t.id) ?? "gap") !== "gap").length;
+  return { ready, total: mainTopics.length };
+}
+
 function where(s: SourceRow): string {
   if (s.type === "outline") return "your outline";
   try {

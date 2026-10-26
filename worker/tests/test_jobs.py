@@ -272,3 +272,12 @@ def test_run_once_logs_how_long_each_job_took(db, caplog):
     lines = [r.getMessage() for r in caplog.records if r.name == "worker.timing"]
     assert any(l.startswith(f"timing understand_goal {gid} +") and "llm schema=SearchPlan secs=1.5" in l for l in lines)
     assert any(l.startswith(f"timing understand_goal {gid} +") and l.endswith("done") for l in lines)
+
+
+def test_preparation_steps_are_claimed_before_reading(db):
+    """Seen on staging: the early source check waited 13 s behind the pages being read."""
+    add_job(db, kind="ingest_source")
+    add_job(db, kind="quiz_bank")
+    early = add_job(db, kind="vet_found")
+    assert jobs.claim(db).id == early
+    assert jobs.claim(db).kind == "ingest_source"  # then oldest first

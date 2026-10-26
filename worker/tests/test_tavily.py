@@ -109,7 +109,7 @@ def test_settings_defaults():
     assert s.tavily_api_key is None
     assert s.tavily_monthly_credits == 1000
     assert s.tavily_url == "https://api.tavily.com/search"
-    assert s.worker_concurrency == 3
+    assert s.worker_concurrency == 6
 
 
 def test_search_many_runs_queries_concurrently_and_counts_each(db):

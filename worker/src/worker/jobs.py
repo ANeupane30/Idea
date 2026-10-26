@@ -66,13 +66,17 @@ class Handler(Protocol):
     def on_permanent_failure(self, conn: psycopg.Connection, job: Job, message: str) -> None: ...
 
 
-_CLAIM_SQL = """
+# A goal's preparation steps go first: a learner is waiting on each of them, and the early source
+# check is only useful if it runs while the pages are read.
+PRIORITY_KINDS = ("understand_goal", "find_sources", "vet_found", "check_sources", "topic_map")
+
+_CLAIM_SQL = f"""
 update jobs set status = 'running', attempts = attempts + 1, locked_at = now()
 where id = (
   select id from jobs
   where (status = 'queued' and run_after <= now())
      or (status = 'running' and locked_at < now() - interval '10 minutes')
-  order by created_at
+  order by kind not in ({", ".join(f"'{k}'" for k in PRIORITY_KINDS)}), created_at
   for update skip locked
   limit 1
 )
