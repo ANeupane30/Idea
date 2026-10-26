@@ -31,6 +31,12 @@ def test_visual_learners_may_get_three_videos():
     assert sum(h.is_video for h in pick_candidates(hits, style="visual_video")) == 3
 
 
+def test_no_videos_when_asked():
+    hits = [hit(f"https://www.youtube.com/watch?v=v{i}", 0.9) for i in range(3)]
+    hits += [hit("https://youtu.be/v9", 0.8), hit("https://a.example/x", 0.1)]
+    assert [h.url for h in pick_candidates(hits, style="visual_video", videos=False)] == ["https://a.example/x"]
+
+
 def test_tracking_parameters_fragments_and_slashes_are_one_candidate():
     """Review Focus 9."""
     hits = [
@@ -95,9 +101,10 @@ def finding(db, make_user, make_goal):
     return uid, gid
 
 
-def handler(tavily=None, wiki=None, **kw):
+def handler(tavily=None, wiki=None, videos_blocked=False, **kw):
     s = Settings(_env_file=None, tavily_api_key=kw.pop("key", "tvly-test"), **kw)
-    return FindSourcesHandler(s, tavily_search=tavily or Tavily(), wiki_search=wiki or Wiki())
+    return FindSourcesHandler(s, tavily_search=tavily or Tavily(), wiki_search=wiki or Wiki(),
+                              videos_blocked=lambda: videos_blocked)
 
 
 def sources(db, gid):
@@ -135,6 +142,13 @@ def test_videos_are_youtube_sources(db, finding):
     _, gid = finding
     handler(Tavily(hits=[hit("https://www.youtube.com/watch?v=abcDEF12345", 0.9), hit("https://a.example/x", 0.5)])).run(db, job(gid))
     assert [r["type"] for r in sources(db, gid)] == ["youtube", "web"]
+
+
+def test_no_videos_while_youtube_blocks_the_worker(db, finding):
+    _, gid = finding
+    hits = [hit("https://www.youtube.com/watch?v=abcDEF12345", 0.9), hit("https://a.example/x", 0.5)]
+    handler(Tavily(hits=hits), videos_blocked=True).run(db, job(gid))
+    assert [r["type"] for r in sources(db, gid)] == ["web"]
 
 
 @pytest.mark.parametrize(

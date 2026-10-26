@@ -12,7 +12,7 @@ from worker.goal_ready import finish_reading, queue_job, search_again_or_fall_ba
 from worker.ingest.extract_web import extract_markdown
 from worker.jobs import Job
 from worker.llm import LLM
-from worker.prep.vet import MAX_TEXT, SourceForCheck, is_vetted, load_for_check, vet
+from worker.prep.vet import MAX_TEXT, SourceForCheck, is_vetted, load_for_check, log_rejected, vet
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +58,7 @@ class VetFoundHandler:
                     conn.execute("update sources set vetted = true, vet_reason = %s where id = %s and vetted is null",
                                  (v.reason, c.id))
                 else:
+                    log_rejected(c.url, v)
                     conn.execute("delete from sources where id = %s and vetted is null", (c.id,))
             finish_reading(conn, goal_id)  # a deleted page may have been the last one in flight
 
@@ -108,13 +109,14 @@ class CheckSourcesHandler:
                 return
             for sid in pending:
                 v = verdicts.get(str(sid))
-                origin = conn.execute("select origin from sources where id = %s", (sid,)).fetchone()
+                origin = conn.execute("select origin, url_or_file from sources where id = %s", (sid,)).fetchone()
                 if origin is None:
                     continue
                 if origin["origin"] == "auto":
                     if is_vetted(v):
                         conn.execute("update sources set vetted = true, vet_reason = %s where id = %s", (v.reason, sid))
                     else:
+                        log_rejected(origin["url_or_file"], v)
                         conn.execute("delete from sources where id = %s", (sid,))
                 elif v is None:
                     # No reliable verdict for the learner's own source: don't block them on it.
