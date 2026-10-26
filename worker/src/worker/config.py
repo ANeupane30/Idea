@@ -18,9 +18,10 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     # Comma-separated OpenRouter model ids, tried in order (OpenRouter falls back down the list).
     # "smart" replaces Sonnet (maps, lessons, questions); "fast" replaces Haiku (matching, checks).
-    # Free models share one account-wide quota: 20 requests/minute, 50/day (1000/day after $10 of credits).
-    openrouter_models_smart: str = "nvidia/nemotron-3.5-super-vl:free,openrouter/free"
-    openrouter_models_fast: str = "nvidia/nemotron-3.5-super-vl:free,openrouter/free"
+    # Default: DeepSeek V4.1 Flash (paid, fast). Free models (":free") share one account-wide quota
+    # of 20 requests/minute, 50/day, and take 20-90 s a call.
+    openrouter_models_smart: str = "deepseek/deepseek-v4.1-flash-1017"
+    openrouter_models_fast: str = "deepseek/deepseek-v4.1-flash-1017"
     poll_interval_s: float = 2.0
     # Automatic sources for topics the learner's own sources don't cover.
     discovery_enabled: bool = True

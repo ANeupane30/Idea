@@ -31,7 +31,11 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 DEFAULT_FIXTURES_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "fake_llm"
 
 # USD per 1M tokens: (input, output)
-PRICES_PER_MTOK = {"claude-sonnet-5-5": (2.00, 10.00), "claude-haiku-4-5": (1.00, 5.00)}
+PRICES_PER_MTOK = {
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "deepseek/deepseek-v4.1-flash-1017": (0.30, 1.20),
+}
 
 
 class LLMOutputError(Exception):

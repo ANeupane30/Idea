@@ -46,6 +46,19 @@ def test_cost_cents_sonnet():
     assert cost_cents(r) == Decimal("300.0000")
 
 
+def test_cost_cents_deepseek_flash():
+    """The default OpenRouter model is priced at its own rates ($0.30 / $1.20 per 1M tokens)."""
+    r = LLMResult(output=None, input_tokens=1_000_000, output_tokens=100_000, model="deepseek/deepseek-v4.1-flash-1017")
+    assert cost_cents(r) == Decimal("42.0000")
+
+
+def test_openrouter_defaults_to_deepseek_flash():
+    from worker.config import Settings
+
+    s = Settings(_env_file=None)
+    assert s.openrouter_models_smart == s.openrouter_models_fast == "deepseek/deepseek-v4.1-flash-1017"
+
+
 def test_record_usage_inserts_row(db, make_user):
     uid = make_user(db)
     r = LLMResult(output=None, input_tokens=100, output_tokens=200, model="claude-sonnet-5-5")

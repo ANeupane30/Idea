@@ -6,7 +6,7 @@ primary_region = "nrt"
 
 [env]
   # anthropic | openrouter. The key is a secret: OPENROUTER_API_KEY or ANTHROPIC_API_KEY.
-  # Models: OPENROUTER_MODELS_SMART / OPENROUTER_MODELS_FAST (defaults are free models; see worker/src/worker/config.py).
+  # Models: OPENROUTER_MODELS_SMART / OPENROUTER_MODELS_FAST (default DeepSeek V4.1 Flash; see worker/src/worker/config.py).
   LLM_PROVIDER = "openrouter"
 
 [processes]
