@@ -95,7 +95,7 @@ class FindSourcesHandler:
                 hits = self._tavily(conn, queries, api_key=self._s.tavily_api_key,
                                     monthly_credits=self._s.tavily_monthly_credits, url=self._s.tavily_url)
                 picked = pick_candidates(hits, style=goal["style"], exclude=existing,
-                                         videos=not self._videos_blocked())
+                                         videos=self._s.find_videos and not self._videos_blocked())
                 candidates = [("youtube" if h.is_video else "web", h.url, h.score, h.raw_content) for h in picked]
                 if not candidates:
                     reason = "no usable Tavily results"

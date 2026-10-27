@@ -69,7 +69,7 @@ class FillGapsHandler:
             urls = {url_key(r["url_or_file"]) for r in conn.execute(
                 "select url_or_file from sources where goal_id = %s and status <> 'failed'", (goal_id,)).fetchall()}
         web_left = MAX_WEB - sum(r["type"] == "web" for r in have)
-        videos_left = MAX_VIDEOS - sum(r["type"] == "youtube" for r in have)
+        videos_left = (MAX_VIDEOS if self._s.find_videos else 0) - sum(r["type"] == "youtube" for r in have)
         word = STYLE_WORD.get(goal["style"], "tutorial")
 
         added = 0

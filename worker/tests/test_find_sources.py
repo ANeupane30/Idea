@@ -140,14 +140,22 @@ def test_finds_eight_candidates_and_reads_them(db, finding):
 
 def test_videos_are_youtube_sources(db, finding):
     _, gid = finding
-    handler(Tavily(hits=[hit("https://www.youtube.com/watch?v=abcDEF12345", 0.9), hit("https://a.example/x", 0.5)])).run(db, job(gid))
+    hits = [hit("https://www.youtube.com/watch?v=abcDEF12345", 0.9), hit("https://a.example/x", 0.5)]
+    handler(Tavily(hits=hits), find_videos=True).run(db, job(gid))
     assert [r["type"] for r in sources(db, gid)] == ["youtube", "web"]
+
+
+def test_no_videos_unless_turned_on(db, finding):
+    _, gid = finding
+    hits = [hit("https://www.youtube.com/watch?v=abcDEF12345", 0.9), hit("https://a.example/x", 0.5)]
+    handler(Tavily(hits=hits)).run(db, job(gid))
+    assert [r["type"] for r in sources(db, gid)] == ["web"]
 
 
 def test_no_videos_while_youtube_blocks_the_worker(db, finding):
     _, gid = finding
     hits = [hit("https://www.youtube.com/watch?v=abcDEF12345", 0.9), hit("https://a.example/x", 0.5)]
-    handler(Tavily(hits=hits), videos_blocked=True).run(db, job(gid))
+    handler(Tavily(hits=hits), videos_blocked=True, find_videos=True).run(db, job(gid))
     assert [r["type"] for r in sources(db, gid)] == ["web"]
 
 

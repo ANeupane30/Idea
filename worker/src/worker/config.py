@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     tavily_monthly_credits: int = 1000
     # Job threads per worker process (each with its own database connection).
     worker_concurrency: int = 6
+    # Found sources include YouTube videos. Off for now: YouTube blocks transcript requests from
+    # our servers' IPs. Turn on (FIND_VIDEOS=true) once transcripts go through a proxy.
+    find_videos: bool = False
     # Optional: without it, Visual / Video learners get Wikipedia articles only.
     youtube_api_key: str | None = None
     youtube_api_url: str = "https://www.googleapis.com/youtube/v3/search"

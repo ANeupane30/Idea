@@ -131,8 +131,8 @@ class Wiki:
         return [WikiHit(f"{query} page", 900, False)]
 
 
-def fill(db, gid, n=4, tavily=None, wiki=None, key="tvly"):
-    s = Settings(_env_file=None, tavily_api_key=key, llm_provider="fake")
+def fill(db, gid, n=4, tavily=None, wiki=None, key="tvly", **kw):
+    s = Settings(_env_file=None, tavily_api_key=key, llm_provider="fake", **kw)
     FillGapsHandler(s, tavily_search=tavily or Tavily(), wiki_search=wiki or Wiki()).run(db, gjob(gid, n))
 
 
@@ -164,6 +164,14 @@ def test_fill_gaps_respects_the_goal_caps(db, matching):
         )
     fill(db, gid, n=4)
     assert len([r for r in auto_sources(db, gid) if r["topic"]]) == 1  # 3 found + 1 gap = 4 web pages
+
+
+@pytest.mark.parametrize("find_videos", [False, True])
+def test_fill_gaps_adds_videos_only_when_turned_on(db, matching, find_videos):
+    _, gid = matching
+    video = lambda q: [TavilyHit(f"https://www.youtube.com/watch?v=v{abs(hash(q)) % 1000:08d}", q, 0.9, True)]
+    fill(db, gid, n=1, tavily=Tavily(per_query=video), find_videos=find_videos)
+    assert [r["type"] for r in auto_sources(db, gid) if r["topic"]] == (["youtube"] if find_videos else [])
 
 
 def test_fill_gaps_falls_back_to_wikipedia(db, matching):
