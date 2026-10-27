@@ -12,6 +12,7 @@ from worker.config import Settings
 from worker.discovery import tavily, wikipedia
 from worker.discovery.tavily import QuotaExhausted, TavilyHit
 from worker.goal_ready import finish_reading, queue_job, starting_point_map
+from worker.ingest.extract_youtube import youtube_blocked
 from worker.ingest.urls import url_key
 from worker.jobs import Job
 
@@ -29,8 +30,9 @@ def _domain(url: str) -> str:
     return "youtube" if host in ("youtube.com", "youtu.be") else host
 
 
-def pick_candidates(hits: list[TavilyHit], *, style: str, limit: int = MAX_CANDIDATES, exclude: set[str] = frozenset()) -> list[TavilyHit]:
-    max_videos = MAX_VIDEOS.get(style, DEFAULT_MAX_VIDEOS)
+def pick_candidates(hits: list[TavilyHit], *, style: str, limit: int = MAX_CANDIDATES, exclude: set[str] = frozenset(),
+                    videos: bool = True) -> list[TavilyHit]:
+    max_videos = MAX_VIDEOS.get(style, DEFAULT_MAX_VIDEOS) if videos else 0
     picked: list[TavilyHit] = []
     seen = set(exclude)
     per_domain: dict[str, int] = {}
@@ -57,10 +59,12 @@ class FindSourcesHandler:
         *,
         tavily_search: Callable = tavily.search_many,
         wiki_search: Callable = wikipedia.search,
+        videos_blocked: Callable[[], bool] = youtube_blocked,
     ):
         self._s = settings
         self._tavily = tavily_search
         self._wiki = wiki_search
+        self._videos_blocked = videos_blocked
 
     def run(self, conn: psycopg.Connection, job: Job) -> None:
         goal_id = UUID(str(job.payload["goal_id"]))
@@ -90,7 +94,8 @@ class FindSourcesHandler:
             try:
                 hits = self._tavily(conn, queries, api_key=self._s.tavily_api_key,
                                     monthly_credits=self._s.tavily_monthly_credits, url=self._s.tavily_url)
-                picked = pick_candidates(hits, style=goal["style"], exclude=existing)
+                picked = pick_candidates(hits, style=goal["style"], exclude=existing,
+                                         videos=self._s.find_videos and not self._videos_blocked())
                 candidates = [("youtube" if h.is_video else "web", h.url, h.score, h.raw_content) for h in picked]
                 if not candidates:
                     reason = "no usable Tavily results"

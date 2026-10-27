@@ -65,6 +65,15 @@ def is_vetted(v: Verdict | None) -> bool:
     return bool(v and v.on_topic and v.credible and v.substantial)
 
 
+def log_rejected(source: str, v: Verdict | None) -> None:
+    """Why a found source was dropped, for judging whether the check is too strict."""
+    if v is None:
+        log.info("found source dropped, no verdict: %s", source)
+    else:
+        log.info("found source rejected: %s on_topic=%s credible=%s substantial=%s: %s",
+                 source, v.on_topic, v.credible, v.substantial, v.reason)
+
+
 def _esc(s: str) -> str:
     return html.escape(s, quote=True)
 

@@ -35,7 +35,8 @@ def test_finding_pages_with_text_queues_their_check(db, finding):
     assert len(jobs_for(db, "vet_found", gid)) == 1
 
 
-def test_found_pages_are_checked_while_they_are_read(db, finding):
+def test_found_pages_are_checked_while_they_are_read(db, finding, caplog):
+    caplog.set_level("INFO", logger="worker.prep.vet")
     _, gid = finding
     find_handler(tavily=Tavily([hit("https://a.example/x", 0.9, raw=MARKDOWN),
                                 hit("https://b.example/y", 0.8, raw=OFFTOPIC),
@@ -44,6 +45,7 @@ def test_found_pages_are_checked_while_they_are_read(db, finding):
     VetFoundHandler(FakeLLM(DEFAULT_FIXTURES_DIR)).run(db, vet_job(gid))
     assert source(db, ids["https://a.example/x"])["vetted"] is True
     assert source(db, ids["https://b.example/y"]) is None  # off topic: gone
+    assert "found source rejected: https://b.example/y on_topic=False" in caplog.text
     assert source(db, ids["https://c.example/z"])["vetted"] is None  # no text: checked after reading
     assert goal(db, gid)["map_status"] == "reading_sources"
 
