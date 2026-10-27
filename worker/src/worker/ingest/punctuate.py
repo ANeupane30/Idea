@@ -3,13 +3,16 @@
 import html
 import re
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 from pydantic import BaseModel
 
 from worker.llm import LLM, LLMOutputError, LLMRefusal, LLMResult
 
 MODEL = "claude-haiku-4-5"
-WINDOW = 150
+# Output-bound: smaller windows repaired at once finish sooner than one long one.
+WINDOW = 50
+MAX_PARALLEL = 8
 
 _SYSTEM = """\
 You fix punctuation and capitalization in automatic video captions.
@@ -34,25 +37,27 @@ def _user(texts: list[str]) -> str:
 
 
 def repair_punctuation(llm: LLM, texts: list[str], bill: Callable[[LLMResult], None]) -> list[str]:
-    """Repair in windows of WINDOW snippets; any snippet whose words changed keeps its original text."""
-    out: list[str] = []
-    for start in range(0, len(texts), WINDOW):
-        window = texts[start : start + WINDOW]
+    """Repair in windows of WINDOW snippets, at once; any snippet whose words changed keeps its original text."""
+
+    def repair(window: list[str]) -> list[str]:
         try:
             result = llm.parse(model=MODEL, system=_SYSTEM, user=_user(window), schema=PunctuationResponse)
         except (LLMOutputError, LLMRefusal) as e:
             # Keep the raw captions: unpunctuated text still chunks and maps.
             if e.input_tokens or e.output_tokens:
                 bill(LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL))
-            out.extend(window)
-            continue
+            return window
         bill(result)
         repaired = result.output.snippets
         if len(repaired) != len(window):
-            out.extend(window)
-            continue
-        out.extend(new if _words(new) == _words(old) else old for old, new in zip(window, repaired))
-    return out
+            return window
+        return [new if _words(new) == _words(old) else old for old, new in zip(window, repaired)]
+
+    windows = [texts[start : start + WINDOW] for start in range(0, len(texts), WINDOW)]
+    if not windows:
+        return []
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(windows))) as pool:
+        return [t for window in pool.map(repair, windows) for t in window]
 
 
 def fake_punctuation_response(user: str) -> PunctuationResponse:

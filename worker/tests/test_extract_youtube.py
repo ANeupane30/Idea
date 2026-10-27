@@ -1,8 +1,9 @@
 import httpx
 import pytest
-from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled
+from youtube_transcript_api import IpBlocked, NoTranscriptFound, RequestBlocked, TranscriptsDisabled
 
 from worker.ingest import messages
+from worker.ingest import extract_youtube as yt
 from worker.ingest.extract_youtube import Transcript, YouTubeTranscriptSource, extract_youtube
 from worker.jobs import PermanentJobError
 
@@ -68,6 +69,18 @@ def test_youtube_none_when_no_transcript():
     assert YouTubeTranscriptSource(api=FakeApi(FakeList()), transport=oembed()).fetch("dQw4w9WgXcQ") is None
     disabled = FakeApi(error=TranscriptsDisabled("dQw4w9WgXcQ"))
     assert YouTubeTranscriptSource(api=disabled, transport=oembed()).fetch("dQw4w9WgXcQ") is None
+
+
+@pytest.mark.parametrize("error", [RequestBlocked("dQw4w9WgXcQ"), IpBlocked("dQw4w9WgXcQ")])
+def test_youtube_block_fails_at_once_and_pauses_videos(monkeypatch, error):
+    monkeypatch.setattr(yt, "_blocked_until", 0.0)
+    assert not yt.youtube_blocked()
+    src = YouTubeTranscriptSource(api=FakeApi(error=error), transport=oembed())
+    with pytest.raises(PermanentJobError) as e:
+        src.fetch("dQw4w9WgXcQ")
+    assert e.value.message == messages.YOUTUBE_BLOCKED
+    assert yt.youtube_blocked()
+    assert not yt.youtube_blocked(now=yt._blocked_until)
 
 
 def test_youtube_title_from_oembed():

@@ -7,15 +7,14 @@ from worker.llm import LLMOutputError, LLMResult
 class SpyLLM:
     """Repairs each snippet ('word' -> 'Word.'), or returns scripted outputs."""
 
-    def __init__(self, edit=None, fail_calls=()):
+    def __init__(self, edit=None, fail_on=None):
         self.calls = []
         self.edit = edit or (lambda i, s: s.capitalize() + ".")
-        self.fail_calls = set(fail_calls)
+        self.fail_on = fail_on  # windows run at once, so a failing call is picked by its text
 
     def parse(self, *, model, system, user, schema, max_tokens=16000):
-        n = len(self.calls)
         self.calls.append(user)
-        if n in self.fail_calls:
+        if self.fail_on and self.fail_on in user:
             raise LLMOutputError("truncated", 5, 7, model)
         snippets = re.findall(r'<s i="(\d+)">(.*?)</s>', user, flags=re.S)
         return LLMResult(PunctuationResponse(snippets=[self.edit(int(i), s) for i, s in snippets]), 10, 20, model)
@@ -38,9 +37,9 @@ def test_punctuation_bills_each_call():
     billed = []
     llm = SpyLLM()
     out = repair_punctuation(llm, texts, billed.append)
-    assert len(llm.calls) == 3 == len(billed)
-    assert WINDOW == 150
-    assert out[0] == "Word 0." and out[319] == "Word 319."
+    assert WINDOW == 50
+    assert len(llm.calls) == 7 == len(billed)
+    assert out == [f"Word {i}." for i in range(320)]  # in order, though windows run at once
 
 
 def test_punctuation_wrong_count_keeps_window():
@@ -55,12 +54,18 @@ def test_punctuation_wrong_count_keeps_window():
 
 
 def test_punctuation_output_error_keeps_window_and_bills():
-    texts = [f"w {i}" for i in range(200)]
+    texts = [f"w {i}" for i in range(100)]
     billed = []
-    out = repair_punctuation(SpyLLM(fail_calls={0}), texts, billed.append)
-    assert out[:150] == texts[:150]
-    assert out[150] == "W 150."
-    assert [b.input_tokens for b in billed] == [5, 10]
+    out = repair_punctuation(SpyLLM(fail_on='<s i="0">w 0<'), texts, billed.append)
+    assert out[:50] == texts[:50]
+    assert out[50] == "W 50."
+    assert sorted(b.input_tokens for b in billed) == [5, 10]
+
+
+def test_punctuation_no_text():
+    llm = SpyLLM()
+    assert repair_punctuation(llm, [], lambda r: None) == []
+    assert llm.calls == []
 
 
 def test_punctuation_escapes_untrusted_text():
