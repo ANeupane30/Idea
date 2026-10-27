@@ -2,6 +2,7 @@
 best candidates. Without a Tavily key, at the monthly quota, or with no results, Wikipedia."""
 
 import logging
+import re
 from collections.abc import Callable
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -23,6 +24,14 @@ MAX_VIDEOS = {"visual_video": 3}
 DEFAULT_MAX_VIDEOS = 2
 WIKI_CANDIDATES = 4
 MIN_WORDS = 300
+MIN_TITLE_KEY = 20  # shorter titles ("Home", "Tutorial") are too generic to call two pages copies
+
+
+def _title_key(title: str) -> str | None:
+    """A title without its site name ("Frontiers | X", "X - PMC"): the same paper or article on two sites."""
+    longest = max(re.split(r"\s+[|\-–—]\s+", title), key=len)
+    key = re.sub(r"[^a-z0-9]+", " ", longest.lower()).strip()
+    return key if len(key) >= MIN_TITLE_KEY else None
 
 
 def _domain(url: str) -> str:
@@ -35,16 +44,20 @@ def pick_candidates(hits: list[TavilyHit], *, style: str, limit: int = MAX_CANDI
     max_videos = MAX_VIDEOS.get(style, DEFAULT_MAX_VIDEOS) if videos else 0
     picked: list[TavilyHit] = []
     seen = set(exclude)
+    titles: set[str] = set()
     per_domain: dict[str, int] = {}
     for h in sorted(hits, key=lambda h: h.score, reverse=True):
         key = url_key(h.url)
+        title = _title_key(h.title)
         domain = _domain(h.url)
         cap = max_videos if domain == "youtube" else 1
-        if key in seen or per_domain.get(domain, 0) >= cap:
+        if key in seen or title in titles or per_domain.get(domain, 0) >= cap:
             continue
         if h.is_video and sum(p.is_video for p in picked) >= max_videos:
             continue
         seen.add(key)
+        if title:
+            titles.add(title)
         per_domain[domain] = per_domain.get(domain, 0) + 1
         picked.append(h)
         if len(picked) == limit:

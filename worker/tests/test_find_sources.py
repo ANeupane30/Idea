@@ -49,6 +49,18 @@ def test_tracking_parameters_fragments_and_slashes_are_one_candidate():
     assert len(picked) == 2
 
 
+def test_one_copy_of_a_paper_on_two_sites():
+    paper = "L-Py: An L-System Simulation Framework for Modeling Plant Architecture Development"
+    hits = [
+        TavilyHit("https://pmc.ncbi.nlm.nih.gov/articles/PMC1", f"{paper} - PMC", 0.9, False),
+        TavilyHit("https://www.frontiersin.org/articles/1", f"Frontiers | {paper}", 0.8, False),
+        TavilyHit("https://a.example/x", "Tutorial", 0.7, False),
+        TavilyHit("https://b.example/y", "Tutorial", 0.6, False),  # short titles aren't compared
+    ]
+    assert [h.url for h in pick_candidates(hits, style="reading")] == [
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC1", "https://a.example/x", "https://b.example/y"]
+
+
 def test_at_most_eight():
     hits = [hit(f"https://site{i}.example/a", 0.5) for i in range(20)]
     assert len(pick_candidates(hits, style="reading")) == 8
