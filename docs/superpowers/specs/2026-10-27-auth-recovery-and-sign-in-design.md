@@ -152,7 +152,7 @@ The sign-in and sign-up forms are also bare:
 - **The full reset:** ask for a code, read it from the email, set a new password. The person lands on their goals page with "Password changed". The old password then fails and the new one works.
 - **Wrong code:** shows its message, and the new password stays filled in.
 - **A used code** tried a second time is rejected.
-- **An expired code** is rejected. The test shortens `otp_expiry` through the auth admin API or a test config.
+- **An expired code** is rejected. The test sets that user's `auth.users.recovery_sent_at` back by more than an hour (Supabase measures expiry from it), then submits the code.
 - **Resend:** the countdown shows and the button is disabled; afterwards a new code arrives and works.
 - **Unknown email:** same answer as a known one, and no email is sent.
 - **A guest with a goal** sees the warning.
