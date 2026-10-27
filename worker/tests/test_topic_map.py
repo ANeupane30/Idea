@@ -47,7 +47,7 @@ class SpyLLM:
         self.calls: list[dict] = []
 
     def parse(self, *, model, system, user, schema, max_tokens=16000):
-        self.calls.append({"model": model, "system": system, "user": user})
+        self.calls.append({"model": model, "system": system, "user": user, "max_tokens": max_tokens})
         out = self.outputs.pop(0)
         if isinstance(out, Exception):
             raise out
@@ -202,6 +202,7 @@ def test_handler_repairs_after_llm_output_error(db, make_user, make_goal):
     spy = SpyLLM([LLMOutputError("truncated", 111, 222, "claude-sonnet-5-5"), fixture_resp()])
     TopicMapHandler(spy).run(db, make_job(gid))
     assert len(spy.calls) == 2
+    assert [c["max_tokens"] for c in spy.calls] == [8000, 8000]  # a runaway map stops well before 16k
     assert goal_row(db, gid)["map_status"] == "ready"
     assert len(rows(db, gid)) == 10
     toks = db.execute("select tokens from usage_events where user_id = %s and kind = 'topic_map' order by tokens", (uid,)

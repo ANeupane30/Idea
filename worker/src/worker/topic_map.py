@@ -19,6 +19,9 @@ MODEL = "claude-sonnet-5-5"
 FAILURE_MESSAGE = "We couldn't build a topic map for this goal. Try rewording it."
 
 MIN_TOP, MAX_TOP, MAX_CHILDREN = 5, 12, 6
+# A 10-topic map is ~3.3k output tokens, so the largest allowed (12 x 6 children) fits well under
+# this. A model that runs on stops here and the map is repaired, instead of writing until 16k.
+MAX_TOKENS = 8000
 MIN_TOP_FOLLOW = 3  # a map that follows the learner's sources may be as small as they are
 # pending: from the goal alone; building_map: after the learner's sources were read.
 _BUILDABLE = ("pending", "building_map")
@@ -196,7 +199,8 @@ class TopicMapHandler:
 
         Every call that consumed tokens is billed in its own committed transaction."""
         try:
-            result = self._llm.parse(model=MODEL, system=system, user=user, schema=TopicMapResponse)
+            result = self._llm.parse(model=MODEL, system=system, user=user, schema=TopicMapResponse,
+                                     max_tokens=MAX_TOKENS)
         except LLMOutputError as e:
             if e.input_tokens or e.output_tokens:
                 billed = LLMResult(None, e.input_tokens, e.output_tokens, e.model or MODEL)
