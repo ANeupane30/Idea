@@ -47,6 +47,7 @@ For each project:
   - Enable anonymous sign-ins.
   - Set the per-IP anonymous sign-in rate limit.
   - Turn on captcha (Turnstile or hCaptcha) before production.
+  - **Rate Limits → IP Address Forwarding: on.** The web app sends each person's IP in `Sb-Forwarded-For` (with the secret key), so Supabase's per-IP limits count each person, not the Vercel server.
 - **Storage:** CI's `supabase db push` creates the `sources` bucket and its policies; nothing to do by hand.
 - **Database URL for the worker:** use a dedicated non-superuser role (see the follow-ups doc), with the session pooler connection string.
 
@@ -82,6 +83,11 @@ Environment variables (Production scope) in each project:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | the publishable key |
 | `LESSON_SERVER_URL` | `https://<fly app>.fly.dev` |
 | `LESSON_SERVER_TOKEN` | the same value as the Fly secret |
+| `SUPABASE_SECRET_KEY` | the Supabase secret key. **Server-only: never prefix it with `NEXT_PUBLIC_`.** Only `lib/supabase/auth-server.ts` reads it. |
+
+**Rotating the secret key:** in Supabase (Settings → API Keys) create a new secret key, set it as `SUPABASE_SECRET_KEY` in Vercel and Fly, deploy both, and only then revoke the old key.
+
+**Warning: nothing may sit in front of Vercel.** The person's IP is read only from `x-vercel-forwarded-for`. A proxy such as Cloudflare in front of Vercel would make everyone appear to come from the proxy's address, and they would all share one set of rate limits.
 
 Create a Vercel **token** (Account → Tokens). Note the **Org ID** and each **Project ID** (Settings → General).
 
