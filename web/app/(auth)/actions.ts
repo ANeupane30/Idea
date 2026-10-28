@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { authClient } from "@/lib/supabase/auth-server";
 import { credentialsSchema, GENERIC_ERROR, type ActionResult } from "@/lib/validation";
 
 const RATE_LIMITED = "Too many attempts. Please wait a minute and try again.";
@@ -17,15 +17,15 @@ export async function signUp(formData: FormData): Promise<ActionResult> {
   const parsed = parseCredentials(formData);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? GENERIC_ERROR };
 
-  const supabase = await createClient();
+  const auth = await authClient();
   const {
     data: { user },
-  } = await supabase.auth.getUser();
+  } = await auth.getUser();
 
   if (user?.is_anonymous) {
     // Convert the guest in place: same user id, so their goal and map stay theirs.
     // With email confirmations off, one call sets both and clears is_anonymous.
-    const { data, error } = await supabase.auth.updateUser(parsed.data);
+    const { data, error } = await auth.updateUser(parsed.data);
     if (error) return signUpError(error);
     // Only happens if email confirmations are switched on: the email waits for confirmation.
     if (data.user?.is_anonymous || data.user?.new_email) {
@@ -34,7 +34,7 @@ export async function signUp(formData: FormData): Promise<ActionResult> {
     redirect("/goals");
   }
 
-  const { data, error } = await supabase.auth.signUp(parsed.data);
+  const { data, error } = await auth.signUp(parsed.data);
   if (error) return signUpError(error);
   // Only happens if email confirmations are switched on.
   if (!data.session) {
@@ -63,8 +63,8 @@ export async function signIn(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: "Email or password is incorrect." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword(parsed.data);
+  const auth = await authClient();
+  const { error } = await auth.signInWithPassword(parsed.data);
   if (error) {
     if (error.code === "invalid_credentials") {
       return { ok: false, error: "Email or password is incorrect." };
@@ -78,8 +78,8 @@ export async function signIn(formData: FormData): Promise<ActionResult> {
 }
 
 export async function signOut(): Promise<void> {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  const auth = await authClient();
+  await auth.signOut();
   // The proxy gives the next request a fresh guest session.
   redirect("/");
 }
