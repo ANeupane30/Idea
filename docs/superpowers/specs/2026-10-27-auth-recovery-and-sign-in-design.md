@@ -1,6 +1,6 @@
 # Password Reset and Friendlier Sign-in: Design
 
-**Status:** Revised after review on 2026-10-28; awaits review.
+**Status:** Approved on 2026-10-28, after review and two revisions.
 - Both design sections were approved by the user on 2026-10-27.
 - A review on 2026-10-28 found problems and asked for decisions. The user decided:
   - turn on email confirmation;
@@ -9,6 +9,7 @@
   - pass each person's IP address to Supabase.
 
   This revision applies those decisions.
+- The user approved the spec with two last changes: `recentEmailProof` is spelled out (4.1), and the staging Auth version is recorded (4.3). The answers to section 8 are recorded there.
 
 **Supabase behaviour:** every claim about it here was checked against Supabase Auth (GoTrue) **v2.197.0**, the version in the local stack. Each was checked in its source, by an experiment on the local stack, or in Supabase's docs, as noted. Section 4.3 lists them. What couldn't be confirmed is in section 8.
 
@@ -62,7 +63,7 @@ The sign-in and sign-up forms are also bare:
   - Each code faces about 6,000 guesses before the next one replaces it, so each has a 0.006 % chance.
   - That's about **8 % a day**, about 45 % after a week, and about 65 % after 12 days.
   - Throughout, the victim gets a reset email every minute.
-- **Deliberately not done here:** detecting floods of resets for one email and pausing them. It's listed in 7.
+- **Deliberately not done here:** detecting floods of resets for one email and pausing them, and lowering the code-check limit. Both are deferred until after the first release (7).
 
 ## 3. What people see
 
@@ -182,7 +183,7 @@ The sign-in and sign-up forms are also bare:
 | `lib/auth/code.ts` | `normalizeCode(value)`. Strips spaces and dashes; needs exactly 8 digits. |
 | `lib/auth/errors.ts` | Maps Supabase auth errors to the messages in section 5, by `error.code` only, never by the message text. |
 | `lib/auth/pad.ts` | `padTo(ms, work)`. Runs `work`, then waits until at least `ms` have passed since it started, and returns or rethrows its result. Takes a clock, so tests can use a fake one. |
-| `lib/auth/recent-proof.ts` | `recentEmailProof(claims, email, now)`. True when the session's verified `amr` claim has `method: "otp"` with a timestamp within the last 15 minutes, and the session's email matches. Claims come from `getClaims()`, which verifies the token. |
+| `lib/auth/recent-proof.ts` | `recentEmailProof(claims, email, now)`. **True only for a session created by an email code within the 15-minute code lifetime**, for the email on the form. It checks four things, and all must hold: the claims come from `getClaims()`, which verifies Supabase's signature; `amr` has an entry with `method: "otp"`; that entry's `timestamp` is no more than 900 s before `now` (and not after it); the claims' `email` equals the form's email, ignoring case. This is reliable (C19): Supabase adds the `otp` entry only when a code creates a new session, sets its time itself, and keeps it unchanged on refresh. If any part is missing or fails, the result is false. |
 | `lib/supabase/middleware.ts` | Redirects signed-in, non-guest people away from the auth pages (3.2). Creates the guest session through `authClient()`, so new-guest limits apply to the visitor's IP. |
 
 **The actions in `app/(auth)/actions.ts`:**
@@ -223,8 +224,9 @@ The sign-in and sign-up forms are also bare:
   - So the guest resend builds its client from the session read before `after()`. A token refresh inside `after()` wouldn't be saved.
   - Sign-up also sends an email; see section 8.
 
-**Recovery sessions.** After a good code, the person is signed in with a session that proved the inbox. If the password save then fails, that session stays, and is used for the "code accepted" retry for up to 15 minutes (3.1.6). After that, `recentEmailProof` fails, and the person needs a new code.
+**Recovery sessions.** After a good code, the person is signed in with a new session created by that code. If the password save then fails, that session stays, and is used for the "code accepted" retry while `recentEmailProof` holds (3.1.6). That's at most 15 minutes after the code was checked. After that, the person is signed out and needs a new code.
 - `amr` records `otp` for a reset code and for an email sign-in code alike (C5), so the check can't tell the two apart. Both prove the person controls the inbox, which is what the retry needs.
+- A session that started with a password never gets an `otp` entry, so it can't use the retry (C19).
 - Supabase itself would accept a password change from any session (`secure_password_change` is off). This check is the app's own rule.
 
 ### 4.2 Supabase
@@ -279,6 +281,8 @@ The sign-in and sign-up forms are also bare:
 
 Checked on Supabase Auth v2.197.0 (local stack). "Source" means the supabase/auth repository at tag v2.197.0; "Local" means an experiment on the local stack; "Docs" means supabase.com/docs/guides/auth/rate-limits.
 
+**Staging runs the same version.** `GET https://iaxhzwsyacnbnwihfxdy.supabase.co/auth/v1/health`, called with the publishable key on 2026-10-28, answered `{"version":"v2.197.0","name":"GoTrue"}`. So none of the rows below needs rechecking because of a version difference. Production hasn't been checked. The implementation plan reads both projects' versions again before the 4.4 gate; if either differs from v2.197.0, every row marked "Source" or "Local" is rechecked on that project first.
+
 | # | Behaviour | How checked |
 |---|---|---|
 | C1 | With confirmation off, a new email/password account is confirmed at once. A later OAuth sign-in with the same email is linked to it, and the password stays. | Source: `external.go` LinkAccount case; `models/linking.go` |
@@ -299,6 +303,7 @@ Checked on Supabase Auth v2.197.0 (local stack). "Source" means the supabase/aut
 | C16 | A redirect is valid if its scheme, host and port match the Site URL, whatever its path and query. Loopback IPs are always valid. Otherwise the URL, without its fragment, is matched against the allow-list globs. An invalid `redirectTo` silently becomes the Site URL. OAuth errors arrive in both the query string and the fragment, and the redirect's own query (`next`, `from`) is kept. | Local (authorize + fake error callback); Source: `utilities/request.go:94`, `external.go:821–845` |
 | C17 | Captcha covers `/signup` (including guests), `/recover`, `/resend`, `/magiclink`, `/otp` and password sign-in. It doesn't cover `/verify` (code checks) or `/user` (a guest's email change). It's skipped for requests with admin credentials. | Source: `api.go:229–268`, `middleware.go:242–283` |
 | C18 | `supabase start` works with Google turned on and its environment variables unset. The literal `env(...)` text is used as the client ID. | Local |
+| C19 | A code check creates a new session whose `amr` is only `[{ "method": "otp" }]`. Nothing carries over from an earlier password session. The timestamp is the time Supabase recorded the claim, and a refresh keeps it unchanged (tested 3 s apart). Claims are added only when a session is issued, never on refresh. | Local; Source: `tokens/service.go:939` (`IssueRefreshToken` → `AddClaimToSession`), `tokens/service.go:194` (`RefreshTokenGrant`, no claim added), `models/sessions.go:390` |
 | R1 | Rate limits use the calling IP. For server-side calls, that's the server's. | Docs |
 | R2 | `Sb-Forwarded-For` carries the person's IP. It works only when IP Address Forwarding is turned on for the project, and only on requests made with a secret API key. Supabase Auth trusts its first value. | Docs; Source: `sbff/sbff.go`, README |
 | R3 | Sign-in with a wrong password takes about 96 ms locally; an unknown email takes about 12 ms. A reset for a real account takes about 45 ms; for an unknown email, about 12 ms. | Local |
@@ -467,18 +472,21 @@ The existing auth and guest tests keep passing.
 - An account page, and changing the password while signed in.
 - Captcha. When it's added: Supabase skips the captcha for admin-credential requests (C17). If the gate (4.4, step 5) finds that our secret-key calls count as admin, our server must check the captcha token itself.
 - Magic-link sign-in.
-- Providers other than Google.
+- Providers other than Google. **Rule:** no other OAuth provider is turned on, on any project, until a version of Supabase Auth with the fix for advisory ANT-2026-7WJV60DR is confirmed (8).
+- **Deferred until after the first release:**
+  - lowering `token_verifications` below 30 per 5 minutes;
+  - a send-email hook that detects and pauses floods of reset emails to one address.
 - **Follow-up: create the guest only when someone starts a goal.**
   - Now the proxy creates a guest for every new visitor. Crawlers and bots that don't keep cookies create a new user on every request, and with IP forwarding, each of their IPs can create 30 an hour.
   - Creating the guest at the first goal would stop that. It would also make 3.3 simpler: link Google only for a guest, since every guest would have a goal.
-- **Follow-up: pause resets for an email that's getting a flood of requests** (2, *Remaining risk*).
 
-## 8. Open questions
-1. **The hosted Auth version.** These behaviours were checked on v2.197.0 locally. The hosted projects may run a different version. The 4.4 gate and the 6.5 checks re-test the ones that matter on staging. Two have no direct staging test: the same-site redirect rule (C16) and the per-code attempt behaviour (C9).
-2. **Advisory ANT-2026-7WJV60DR (manual linking).**
+## 8. Open questions and their answers
+1. **The hosted Auth version.** Staging runs v2.197.0, the version checked here (4.3). Production is read again before the 4.4 gate, and rechecked if it differs.
+2. **Advisory ANT-2026-7WJV60DR (manual linking).** **Accepted while Google is the only provider** (user, 2026-10-28), under the rule in 7.
    - The advisory names no fixed version, and says it hasn't been reproduced.
    - In v2.197.0, the code it describes still looks unchanged. Automatic linking matches existing identities by their stored email, whether or not the provider verified it (`models/linking.go:121`). Manual linking only rejects an email collision when the target user has no email.
-   - **Exposure here is low:** Google is the only provider, and it verifies emails.
-   - **To do before production:** confirm whether the hosted project includes a fix, and keep every other provider off until it does.
-3. **Old access tokens on other devices** still read the data API for up to an hour after a reset (C7), although they can't refresh or reach `/user`. Accept this, or shorten `jwt_expiry`?
-4. **Sign-up's padding.** Sign-up also sends an email. If real send times vary too much for `SEND_MS`, should sign-up (whose answer is always "enter the code") move its Supabase call into `after()` as well? Then it loses its "Too many attempts" message. Or should it be padded to a longer time?
+   - Exposure is low: Google is the only provider, and it verifies emails.
+3. **Old access tokens on other devices.** After a reset they still read the data API for up to an hour (C7), although they can't refresh or reach `/user`. **Accepted** (user, 2026-10-28); `jwt_expiry` stays at 3,600 s.
+4. **Sign-up's padding.** **Decided from the staging timings** (user, 2026-10-28), like send code and resend (4.1, 6.5).
+   - If real sends fit under a sensible `SEND_MS`, sign-up is padded.
+   - If they don't, sign-up's Supabase call moves into `after()` as well. Its answer is always "enter the code", and it loses its "Too many attempts" message.
