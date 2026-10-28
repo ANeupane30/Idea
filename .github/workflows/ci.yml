@@ -105,6 +105,7 @@ jobs:
             echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$PUBLISHABLE_KEY"
             echo "LESSON_SERVER_URL=http://127.0.0.1:8787"
             echo "LESSON_SERVER_TOKEN=$token"
+            echo "SUPABASE_SECRET_KEY=$SECRET_KEY"
           } > web/.env.local
           {
             echo "LLM_PROVIDER=fake"
